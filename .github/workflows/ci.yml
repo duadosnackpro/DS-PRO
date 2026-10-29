@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+      - name: Pasang dependensi
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - name: Sumber app.js sesuai hasil bangun
+        run: npm run build:check
+      - name: Lint
+        run: npm run lint
+      - name: Tipe (ratchet)
+        run: npm run typecheck
+      - name: Pemeriksa rilis (versi, berkas, CSP, manifest)
+        run: npm run test:release
+      - name: Uji adapter Supabase
+        run: npm run test:fe
+      - name: Uji logika kewenangan Edge Function
+        run: npm run test:edge
+  db:
+    # Menjalankan seluruh migrasi + tes SQL pada Postgres sungguhan (skema auth ditiru oleh harness).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_PASSWORD: postgres}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migrasi dan tes database (multi-outlet, RLS, atomik, idempotensi)
+        env:
+          PLAIN_PG: '1'
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: bash supabase/tests/run.sh

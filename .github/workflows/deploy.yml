@@ -1,0 +1,132 @@
+# Rilis otomatis: push ke main -> uji -> migrasi database (staging, lalu produksi) -> rakit -> terbitkan -> verifikasi versi yang tayang.
+# Situs TIDAK terbit bila migrasi produksi gagal atau versi skema di database tidak sama dengan migrasi terakhir di repo.
+# Prasyarat satu kali (Settings repo):
+#   1. Pages > Build and deployment > Source = "GitHub Actions"
+#   2. Environment "production" (Settings > Environments; disarankan: Required reviewers). Secrets pada environment itu:
+#        SUPABASE_ACCESS_TOKEN (token akun, bukan service_role), SUPABASE_DB_PASSWORD, dan Variable SUPABASE_PROJECT_REF.
+#      Proyek yang sudah dipasang manual WAJIB 'supabase migration repair' sekali (lihat supabase/README.md), kalau tidak push mencoba memasang ulang semua migrasi.
+#   3. (Opsional, disarankan) Environment "staging" dengan secret/variabel yang sama untuk proyek Supabase terpisah, ditambah Variables
+#      SUPABASE_URL dan SUPABASE_KEY (publishable). Tanpa SUPABASE_PROJECT_REF di environment staging, tahap staging dilewati.
+#   2. Settings > Secrets and variables > Actions > tab Variables: SUPABASE_KEY = publishable/anon key (BUKAN service_role).
+#      SUPABASE_URL opsional (bila kosong dipakai nilai di web/js/config.js).
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+  migrate-staging:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - id: has
+        run: '[ -n "${{ vars.SUPABASE_PROJECT_REF }}" ] && echo "on=1" >> "$GITHUB_OUTPUT" || echo "::notice::Environment staging belum dikonfigurasi, tahap staging dilewati"'
+      - if: steps.has.outputs.on == '1'
+        uses: actions/checkout@v4
+      - if: steps.has.outputs.on == '1'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - if: steps.has.outputs.on == '1'
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest   # TODO: sematkan ke versi tertentu setelah dicoba sekali di staging
+      - name: Pasang migrasi dan Edge Function di staging
+        if: steps.has.outputs.on == '1'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -e
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
+          supabase db push
+          supabase functions deploy admin-users
+      - name: Verifikasi versi skema staging
+        if: steps.has.outputs.on == '1'
+        run: node tools/verify_schema.js "${{ vars.SUPABASE_URL }}" "${{ vars.SUPABASE_KEY }}"
+  migrate:
+    # Produksi: migrasi harus berhasil dan terverifikasi SEBELUM situs terbit (klien baru menolak berjalan di skema lama).
+    needs: [test, migrate-staging]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest   # TODO: sematkan ke versi tertentu
+      - name: Pasang migrasi dan Edge Function di produksi
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          set -e
+          [ -n "$REF" ] && [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_DB_PASSWORD" ] || { echo "::error::Environment production belum lengkap: SUPABASE_PROJECT_REF, SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD"; exit 1; }
+          supabase link --project-ref "$REF"
+          supabase db push --dry-run
+          supabase db push
+          supabase functions deploy admin-users
+      - name: Verifikasi versi skema produksi
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ vars.SUPABASE_KEY }}
+        run: |
+          set -e
+          SUPABASE_URL=${SUPABASE_URL:-$(node -p "(require('fs').readFileSync('web/js/config.js','utf8').match(/SUPABASE_URL:\s*'([^']*)'/)||[])[1]||''")}
+          node tools/verify_schema.js "$SUPABASE_URL" "$SUPABASE_KEY"
+  deploy:
+    needs: [test, migrate]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rakit situs (config.js diisi dari variabel repo)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ vars.SUPABASE_KEY }}
+        run: |
+          set -e
+          VER=$(node -p "require('fs').readFileSync('web/js/config.js','utf8').match(/VERSION:\s*'([^']+)'/)[1]")
+          SUPABASE_URL=${SUPABASE_URL:-$(node -p "(require('fs').readFileSync('web/js/config.js','utf8').match(/SUPABASE_URL:\s*'([^']*)'/)||[])[1]||''")}
+          echo "$SUPABASE_URL" | grep -Eq '^https://[a-z0-9-]+\.supabase\.co$' || { echo "::error::SUPABASE_URL tidak valid (https://<ref>.supabase.co)"; exit 1; }
+          [ -n "$SUPABASE_KEY" ] || { echo "::error::Variabel SUPABASE_KEY (publishable/anon key) belum diisi. JANGAN memakai service_role."; exit 1; }
+          case "$SUPABASE_KEY" in *service_role*) echo "::error::Kunci service_role tidak boleh dipakai di klien"; exit 1;; esac
+          rm -rf _site && cp -r web _site
+          printf "window.CONFIG = {\n  VERSION: '%s',\n  SUPABASE_URL: '%s',\n  SUPABASE_KEY: '%s'\n};\n" "$VER" "$SUPABASE_URL" "$SUPABASE_KEY" > _site/js/config.js
+          echo "VERSION=$VER" >> "$GITHUB_ENV"
+      - name: Periksa isi paket yang akan terbit
+        run: WEB_SRC=_site node tests/release_check.js
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verifikasi versi yang tayang (sw.js dan config.js)
+        env:
+          URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            SW=$(curl -fsS -H 'Cache-Control: no-cache' "${URL}sw.js?cb=$RANDOM" || true); CF=$(curl -fsS -H 'Cache-Control: no-cache' "${URL}js/config.js?cb=$RANDOM" || true)
+            if echo "$SW" | grep -q "duado-v$VERSION'" && echo "$CF" | grep -q "'$VERSION'"; then echo "Tayang: versi $VERSION"; exit 0; fi
+            echo "Belum tayang (percobaan $i), tunggu..."; sleep 10
+          done
+          echo "::error::Versi $VERSION belum terlihat di $URL setelah 60 detik"; exit 1
