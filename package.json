@@ -1,0 +1,23 @@
+{
+  "name": "duado-pos",
+  "version": "2.3.2",
+  "private": true,
+  "description": "Duado Snack POS: klien web statis (GitHub Pages) + backend Supabase",
+  "scripts": {
+    "build": "node tools/build.js",
+    "build:check": "node tools/build.js --check",
+    "lint": "eslint .",
+    "typecheck": "node tools/typecheck.js",
+    "test:release": "node tests/release_check.js",
+    "test:fe": "node tests/fe_sb.js",
+    "test": "npm run build:check && npm run test:release && npm run test:fe && npm run test:edge",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "test:edge": "node --experimental-strip-types --test supabase/functions/admin-users/authz_test.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.17.0",
+    "eslint": "9.17.0",
+    "globals": "15.14.0",
+    "typescript": "6.0.3"
+  }
+}

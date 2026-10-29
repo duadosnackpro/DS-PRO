@@ -1,0 +1,124 @@
+web/js/app.js | TS2339 | Property 'VERSION' does not exist on type '{}'.
+web/js/app.js | TS2339 | Property 'VERSION' does not exist on type '{}'.
+web/js/app.js | TS2339 | Property 'VERSION' does not exist on type '{}'.
+web/js/app.js | TS2339 | Property 'VERSION' does not exist on type '{}'.
+web/js/app.js | TS2339 | Property '_fx' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property '_fx' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property '_sc' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property '_sc' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'a' does not exist on type '{ qr: string; }'.
+web/js/app.js | TS2339 | Property 'b' does not exist on type '{ qr: string; }'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'drawImage' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'drawImage' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'getContext' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'getContext' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'hasAttribute' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'height' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'height' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'height' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'id' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'id' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'issueCount' does not exist on type '{ views: {}; }'.
+web/js/app.js | TS2339 | Property 'issueCount' does not exist on type '{ views: {}; }'.
+web/js/app.js | TS2339 | Property 'max' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'offsetLeft' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'offsetWidth' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'offsetWidth' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 's' does not exist on type '{ qr: string; }'.
+web/js/app.js | TS2339 | Property 'standalone' does not exist on type 'Navigator'.
+web/js/app.js | TS2339 | Property 't' does not exist on type '(m: any) => void'.
+web/js/app.js | TS2339 | Property 't' does not exist on type '(m: any) => void'.
+web/js/app.js | TS2339 | Property 'tagName' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'type' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'type' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'type' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element | {}'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'width' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'width' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'width' does not exist on type 'HTMLCanvasElement | CanvasRenderingContext2D'.
+web/js/app.js | TS2339 | Property 'z' does not exist on type '{ qr: string; }'.
+web/js/app.js | TS2362 | The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+web/js/app.js | TS2363 | The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+web/js/modules.js | TS2339 | Property 'checked' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'files' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'id' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'style' does not exist on type 'Element'.
+web/js/modules.js | TS2339 | Property 'test' does not exist on type 'string | RegExp'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
+web/js/modules.js | TS2362 | The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+web/js/modules.js | TS2362 | The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+web/js/modules.js | TS2363 | The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+web/js/modules.js | TS2363 | The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+web/js/modules.js | TS2538 | Type 'RegExp[]' cannot be used as an index type.
+web/sw.js | TS2339 | Property 'data' does not exist on type 'Event'.
+web/sw.js | TS2339 | Property 'data' does not exist on type 'Event'.
+web/sw.js | TS2339 | Property 'request' does not exist on type 'Event'.
+web/sw.js | TS2339 | Property 'respondWith' does not exist on type 'Event'.
+web/sw.js | TS2339 | Property 'skipWaiting' does not exist on type 'WorkerGlobalScope & typeof globalThis'.
+web/sw.js | TS2339 | Property 'waitUntil' does not exist on type 'Event'.
+web/sw.js | TS2339 | Property 'waitUntil' does not exist on type 'Event'.
+web/sw.js | TS2551 | Property 'clients' does not exist on type 'WorkerGlobalScope & typeof globalThis'. Did you mean 'Clients'?

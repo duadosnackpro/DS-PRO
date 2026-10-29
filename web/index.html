@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#5B1A14">
+<meta name="color-scheme" content="light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Duado Snack</title>
+<link rel="preload" href="fonts/baloo2-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="bar"></div>
+<div id="upd" hidden></div>
+<div id="app"><div class="splash">Duado Snack</div></div>
+<div id="sheet" hidden></div>
+<div id="busy" role="status" aria-live="polite" hidden></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="js/config.js"></script>
+<script src="js/sb-adapter.js"></script>
+<script src="js/app.js"></script>
+<script src="js/modules.js"></script>
+</body>
+</html>
