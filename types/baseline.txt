@@ -19,7 +19,6 @@ web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
-web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'closest' does not exist on type 'EventTarget'.
@@ -29,6 +28,9 @@ web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
+web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'dataset' does not exist on type 'EventTarget'.
@@ -75,6 +77,8 @@ web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'Element'.
+web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
 web/js/app.js | TS2339 | Property 'value' does not exist on type 'EventTarget'.
