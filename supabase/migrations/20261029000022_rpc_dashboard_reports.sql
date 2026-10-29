@@ -3,6 +3,7 @@
 -- Semua agregasi memakai zona waktu OUTLET (bukan UTC dan bukan zona perangkat). Kolom biaya/HPP hanya untuk owner/admin/auditor.
 
 -- Fakta penjualan per outlet dan rentang tanggal lokal outlet. Privat: tidak diberikan ke klien (dipanggil dari fungsi lain milik owner fungsi).
+drop function if exists app.sales_facts(uuid, date, date);
 create function app.sales_facts(p_outlet uuid, p_from date, p_to date)
 returns table (sale_id uuid, kind text, channel_id uuid, d date, om numeric, fee numeric, hpp numeric, hpp_missing integer)
 language sql stable security definer set search_path = '' as $$
@@ -20,7 +21,7 @@ $$;
 revoke all on function app.sales_facts(uuid, date, date) from public, anon, authenticated;
 
 -- ---------- Beranda ----------
-create function app.dashboard(p jsonb) returns jsonb
+create or replace function app.dashboard(p jsonb) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare
   v_o public.outlets; v_per text := coalesce(nullif(p ->> 'period', ''), 'hari');
@@ -92,7 +93,7 @@ begin
 end $$;
 
 -- ---------- Laporan (8 jenis) ----------
-create function app.report_legacy(p jsonb) returns jsonb
+create or replace function app.report_legacy(p jsonb) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare
   v_o public.outlets; v_type text := coalesce(p ->> 'type', 'labarugi'); v_role text; v_cost boolean;
@@ -231,7 +232,7 @@ begin
 end $$;
 
 -- ---------- Daftar produksi ----------
-create function app.production_list(p jsonb) returns jsonb
+create or replace function app.production_list(p jsonb) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare v_o public.outlets; v_cost boolean; v_rows jsonb;
 begin
@@ -254,7 +255,7 @@ begin
 end $$;
 
 -- ---------- Simpan resep (header + bahan, satu transaksi) ----------
-create function app.recipe_save(p jsonb) returns jsonb
+create or replace function app.recipe_save(p jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
   v_id uuid := nullif(p ->> 'id', '')::uuid; v_r public.recipes; v_e jsonb; v_yield numeric := app.num(p, 'hasil_standar');
