@@ -156,7 +156,8 @@ function cartLines() {
 }
 function cashBox() {
   const el = $('#cashbox'); if (!el) return;
-  if (S.metode !== 'tunai') { el.innerHTML = '<p class="muted">Pembayaran ' + esc(S.metode.toUpperCase()) + ' dicatat lunas saat disimpan.</p>'; return; }
+  if (S.metode !== 'tunai') { const mn = Number(cfg('bayar_referensi_min')), req = mn > 0 && calc().total >= mn;   // F-10: referensi transfer/QRIS untuk rekonsiliasi dengan mutasi penyedia
+    el.innerHTML = '<p class="muted">Pembayaran ' + esc(S.metode.toUpperCase()) + ' dicatat lunas saat disimpan.</p><label>No. referensi ' + (req ? '(wajib)' : '(disarankan)') + '<input class="inp" data-in="ref" maxlength="60" autocomplete="off" placeholder="Dari bukti ' + esc(S.metode.toUpperCase()) + '" value="' + esc(S.ref || '') + '"></label>'; return; }
   const t = calc().total, q = [t].concat([5000, 10000, 20000, 50000, 100000].map(n => Math.ceil(t / n) * n)).filter((x, i, a) => x > 0 && a.indexOf(x) === i).slice(0, 4);
   el.innerHTML = '<label>Uang diterima (Rp)<input class="inp" data-in="terima" inputmode="numeric" placeholder="' + num(t) + '" value="' + esc(S.terima) + '"></label><div class="chips">' + q.map((x, i) => '<button class="chip" data-act="qk" data-n="' + x + '">' + (i === 0 ? 'Uang pas' : num(x)) + '</button>').join('') + '</div>';
 }
@@ -186,16 +187,16 @@ function upd() {
   if (!isWide()) barRender();
 }
 /* Otorisasi Owner di perangkat ini: Owner mengetik PIN, server memberi token sekali pakai untuk satu transaksi (PIN tidak disimpan). */
-function askOwner(msg, kind, rid, nilai) {
+function askOwner(msg, kind, rid, nilai, ref) {
   return new Promise(res => {
-    S.opin = {res: res, kind: kind, rid: rid, nilai: nilai};
-    sheet('<div class="grab"></div><h2>Otorisasi Owner</h2><p class="muted">' + esc(msg) + '</p><label>Username Owner<input class="inp" id="ou" autocapitalize="none" value="' + esc(LS.get('ownerUser', 'owner')) + '"></label><label>PIN Owner<input class="inp" id="op" type="password" inputmode="numeric" autocomplete="off"></label><div class="err" id="oerr"></div><button class="btn pri" data-act="opin_ok">Setujui</button><button class="btn sec" data-act="close">Batal</button>');
+    S.opin = {res: res, kind: kind, rid: rid, nilai: nilai, ref: ref};
+    sheet('<div class="grab"></div><h2>Otorisasi Owner / Supervisor</h2><p class="muted">' + esc(msg) + '</p><label>Username Owner / Supervisor<input class="inp" id="ou" autocapitalize="none" value="' + esc(LS.get('ownerUser', 'owner')) + '"></label><label>PIN Owner / Supervisor<input class="inp" id="op" type="password" inputmode="numeric" autocomplete="off"></label><div class="err" id="oerr"></div><button class="btn pri" data-act="opin_ok">Setujui</button><button class="btn sec" data-act="close">Batal</button>');
   });
 }
 async function opinOk() {
   const o = S.opin; if (!o) return; const u = ($('#ou') || {}).value, pw = ($('#op') || {}).value; if (!u || !pw) return;
   $('#oerr').textContent = '';
-  try { const r = await api('override.grant', {kind: o.kind, request_id: o.rid, nilai: o.nilai, username: u.trim(), pin: pw, dev: devId()}); LS.set('ownerUser', u.trim()); S.opin = null; closeSheet(); o.res(r.token); }
+  try { const r = await api('override.grant', {kind: o.kind, request_id: o.rid, nilai: o.nilai, ref_id: o.ref, username: u.trim(), pin: pw, dev: devId()}); LS.set('ownerUser', u.trim()); S.opin = null; closeSheet(); o.res(r.token); }
   catch (e) { $('#oerr').textContent = e.server ? e.message : 'Otorisasi butuh koneksi internet.'; }
 }
 async function pay() {
@@ -203,6 +204,7 @@ async function pay() {
   if (S.cart.some(l => !vById(l.v))) { S.cart = S.cart.filter(l => vById(l.v)); saveCart(); toast('Ada produk yang sudah tidak tersedia; keranjang diperbarui'); if (S.cart.length) { if (!isWide()) cartSheet(); } else closeSheet(); cartbar(); return; }
   const c = calc(), tunai = S.metode === 'tunai', terima = tunai ? (S.terima === '' ? c.total : Number(S.terima) || 0) : c.total;
   if (tunai && terima < c.total) return toast('Uang diterima kurang');
+  { const mn = Number(cfg('bayar_referensi_min')); if (!tunai && mn > 0 && c.total >= mn && !String(S.ref || '').trim()) return toast('Isi nomor referensi ' + S.metode.toUpperCase() + ' (transaksi Rp' + num(mn) + ' ke atas)'); }
   if (payMethods().indexOf(S.metode) < 0) { S.metode = payMethods()[0] || 'tunai'; LS.set('metode', S.metode); const mc = $('#mchips'); if (mc) mc.innerHTML = methodChips(); cashBox(); upd(); return toast('Metode bayar tidak tersedia, dipilih ' + S.metode.toUpperCase()); }
   S.paying = true; let rc;
   const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2), ts = Date.now(), override = {};
@@ -216,6 +218,7 @@ async function pay() {
   }
   try {
     const payload = {request_id: rid, outlet_id: S.data.outlet ? S.data.outlet.id : undefined, channel_id: S.ch, items: S.cart.map(l => ({variant_id: l.v, qty: l.qty})), diskon: c.dis, metode_bayar: S.metode, catatan: S.catatan, client_ts: ts, total_klien: c.total};
+    if (!tunai && String(S.ref || '').trim()) payload.referensi_bayar = String(S.ref).trim().slice(0, 60);
     if (override.diskon) payload.override = override;
     rc = {rid: rid, time: ts, kasir: String((S.data.user && (S.data.user.nama || S.data.user.username)) || ''), ch: chName(S.ch), metode: S.metode, terima: terima, kembali: terima - c.total, sub: c.sub, dis: c.dis, ppn: c.ppn, total: c.total,
       lines: S.cart.map(l => { const v = vById(l.v); return {n: (vName(v) + ' ' + vSub(v)).trim(), q: l.qty, h: priceOf(l.v, S.ch)}; })};
@@ -223,7 +226,7 @@ async function pay() {
     S.cart.forEach(l => { const v = vById(l.v); if (v) v.stok = r6((Number(v.stok) || 0) - l.qty); }); LS.set('data', S.data);
   } catch (e) { S.paying = false; logErr(e, 'bayar'); return toast('Transaksi gagal disimpan: ' + e.message); }
   /* transaksi sudah aman di antrean: kosongkan keranjang lebih dulu agar tidak pernah tersisa, apa pun yang terjadi setelah ini */
-  S.cart = []; S.diskon = ''; S.terima = ''; S.catatan = ''; LS.del('cart'); closeSheet();
+  S.cart = []; S.diskon = ''; S.terima = ''; S.catatan = ''; S.ref = ''; LS.del('cart'); closeSheet();
   try { render(); } catch (e) { logErr(e, 'render'); }
   try { showReceipt(rc); } catch (e) { logErr(e, 'struk'); toast('Transaksi tersimpan, tetapi struk gagal ditampilkan.'); }
   if (T(cfg('auto_cetak'))) { try { printBT(rc); } catch (e) { logErr(e, 'cetak'); } }

@@ -44,14 +44,27 @@ function pbSheet() {
     pb.items.map((i, n) => { const x = m.find(y => y.id === i.id); return '<div class="li"><div><b>' + esc(x ? x.nama : '?') + '</b><div class="muted">' + qf(i.qty) + ' ' + esc(x ? x.satuan : '') + ' @ ' + rp(i.harga) + '</div></div><button class="chip" data-act="pbdel" data-i="' + n + '">Hapus</button></div>'; }).join('') +
     '<label>Bahan<select class="inp" id="pb_m">' + m.map(x => '<option value="' + esc(x.id) + '">' + esc(x.nama) + ' (' + esc(x.satuan) + ')</option>').join('') + '</select></label><div class="row2"><div style="flex:1"><label>Jumlah<input class="inp" id="pb_q" inputmode="decimal"></label></div><div style="flex:1"><label>Harga satuan (Rp)<input class="inp" id="pb_h" inputmode="decimal"></label></div></div>' +
     '<button class="btn sec" data-act="pbadd">Tambah ke daftar</button><label>Ongkir (Rp, dialokasikan ke HPP)<input class="inp" data-in="pbongkir" inputmode="numeric" value="' + esc(pb.ongkir) + '"></label>' +
-    '<div class="kv big"><span>Total</span><span>' + rp(tot + (Number(pb.ongkir) || 0)) + '</span></div><button class="btn pri" data-act="pbsave">Simpan pembelian</button>');
+    '<div class="kv big"><span>Total</span><span>' + rp(tot + (Number(pb.ongkir) || 0)) + '</span></div><button class="btn pri" data-act="pbsave">Simpan pembelian</button><button class="btn sec sm" data-act="pbhist">Riwayat pembelian / batalkan</button>');
+}
+/* F-16: riwayat pembelian + pembatalan (supervisor ke atas). Stok bahan dikurangi kembali; ditolak bila bahan sudah terpakai. */
+async function pbHist() {
+  sheet('<h2>Riwayat pembelian</h2><div id="pbh">' + skel(3) + '</div>');
+  try {
+    const L = await api('purchase.list', {}), sup = id => { const s = (S.data.suppliers || []).find(x => x.id === id); return s ? s.nama : ''; };
+    $('#pbh').innerHTML = L.length ? L.map(x => '<div class="li" style="display:block"><div class="kv"><b>' + esc(String(x.waktu).slice(0, 10)) + (sup(x.supplier_id) ? ' · ' + esc(sup(x.supplier_id)) : '') + '</b><span>' + rp(x.total) + '</span></div>' +
+      (x.status === 'cancelled' ? '<div class="muted"><span class="tag red">Dibatalkan</span> ' + esc(x.alasan_batal) + '</div>' : (can('approve') ? '<button class="chip" data-act="pbcancel" data-id="' + esc(x.id) + '">Batalkan</button>' : '')) + '</div>').join('') : '<p class="muted">Belum ada pembelian.</p>';
+  } catch (e) { $('#pbh').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+async function pbCancel(id) {
+  const why = prompt('Alasan membatalkan pembelian ini (min. 3 huruf):'); if (why === null) return; if (why.trim().length < 3) return toast('Alasan wajib diisi');
+  return busy('Membatalkan…', async () => { try { await api('purchase.cancel', {id: id, alasan: why.trim()}); await loadData(); toast('Pembelian dibatalkan, stok bahan dikembalikan'); pbHist(); } catch (e) { toast(e.message); } });
 }
 async function pbSave() {
   return busy('Menyimpan pembelian…', async () => {
   const pb = S.pb; if (!pb.items.length) return toast('Daftar masih kosong');
   try {
     const r = await api('purchase.create', {supplier_id: pb.sup, ongkir: Number(pb.ongkir) || 0, items: pb.items.map(i => ({material_id: i.id, qty: i.qty, harga_satuan: i.harga}))});
-    r.materials.forEach(u => { const m = S.data.materials.find(x => x.id === u.id); if (m) { m.stok = u.stok; m.hpp_rata2 = u.hpp_rata2; } });
+    r.materials.forEach(u => { const m = S.data.materials.find(x => x.id === u.id); if (m) { m.stok = u.stok; if (u.hpp_rata2 !== undefined) m.hpp_rata2 = u.hpp_rata2; } });   // server hanya mengirim stok; jangan menghapus HPP yang ada
     LS.set('data', S.data); S.pb = {items: [], ongkir: '', sup: ''}; closeSheet(); render(); toast('Pembelian tersimpan, HPP diperbarui');
   } catch (e) { toast(e.message); }
   });

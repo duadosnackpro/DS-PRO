@@ -47,6 +47,9 @@ const ACT = {
   dclear: () => { LS.set('errlog', []); vDiag(); toast('Catatan kesalahan dihapus'); },
   copyurl: () => copyText(location.href.split('#')[0], 'Alamat aplikasi disalin.'),
   qretry: el => { const q = S.queue[el.dataset.i]; if (q) { q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; } LS.set('queue', S.queue); qrefresh(); flush(); },
+  qaccept: el => { const q = S.queue[el.dataset.i]; if (!q) return; q.payload.terima_selisih = true; q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; LS.set('queue', S.queue); qrefresh(); flush(); toast('Dikirim ulang dengan harga server; ditandai untuk ditinjau Owner'); },
+  sreview: async el => { const note = await askReason('Tandai sudah ditinjau?', 'Tulis hasil peninjauan (mis. selisih harga dijelaskan, stok sudah di-opname). Angka transaksi tidak diubah.', 'Tandai ditinjau'); if (note === null) return;
+    try { await api('sale.review', {id: el.dataset.id, catatan: note}); S.rhist = null; VC = {}; toast('Ditandai sudah ditinjau'); if (S.tab === 'riwayat') vRiwayat(); else if (S.tab === 'dash') render(); } catch (e) { toast(e.auth ? 'Sesi berakhir, masuk lagi' : e.message); } },
   qretryall: () => { S.queue.forEach(q => { if (q.status === 'review' && (q.uid === S.data.user.uid || q.by === S.data.user.uid) && !qinfo(q).auth) { q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; } }); LS.set('queue', S.queue); qrefresh(); flush(); },
   more: el => { const k = el.dataset.k; if (!PGN[k]) return; LIM[k] = lim(k) + PGN[k]; // satu halaman lagi
     if (k === 'grid') grid(); else if (k === 'cart') cartLines(); else if (k === 'hist') { if (S.rcur && S.rcur.srv) { if (S.rmore) S.rmore(); } else if (S.rlist && S.rcur) S.rlist(S.rcur); }
@@ -54,8 +57,9 @@ const ACT = {
   qdel: async el => {
     const q = S.queue[el.dataset.i]; if (!q) return;
     if (!navigator.onLine) return toast('Hubungkan internet dulu: penghapusan dicatat ke server agar ada jejaknya');
-    const fromQ = S.qopen, back = () => { if (fromQ) queueSheet(); }, alasan = await askReason('Hapus transaksi ' + rp(q.total) + '?', 'Alasan wajib dan dicatat di server. Tulis juga bila uang pelanggan sudah diterima.', 'Hapus transaksi'); if (alasan === null) return back();
-    try { await api('sale.reject_log', {aksi: 'hapus', nomor: q.nomor || '', galat: q.error || '', request_id: q.rid, total: q.total, metode: q.payload.metode_bayar, channel: q.ch, waktu: fmtDT(q.ts), error: q.error || '', alasan: alasan.trim(), items: q.payload.items.map(it => { const v = vById(it.variant_id); return {sku: v ? v.sku : it.variant_id, qty: it.qty}; })}); }
+    const fromQ = S.qopen, back = () => { if (fromQ) queueSheet(); }, alasan = await askReason('Hapus transaksi ' + rp(q.total) + '?', 'Alasan wajib dan dicatat di server. Tulis juga bila uang pelanggan sudah diterima.' + (can('approve') ? '' : ' Kasir memerlukan persetujuan PIN Owner/Supervisor.'), 'Hapus transaksi'); if (alasan === null) return back();
+    let tok = null; if (!can('approve')) { tok = await askOwner('Hapus transaksi ' + rp(q.total) + ' dari antrean: ' + alasan.trim(), 'hapus', q.rid, q.total); if (!tok) return back(); }   // P0 (F-04): kasir tidak boleh membuang penjualan sendirian
+    try { await api('sale.reject_log', {override_token: tok, aksi: 'hapus', nomor: q.nomor || '', galat: q.error || '', request_id: q.rid, total: q.total, metode: q.payload.metode_bayar, channel: q.ch, waktu: fmtDT(q.ts), error: q.error || '', alasan: alasan.trim(), items: q.payload.items.map(it => { const v = vById(it.variant_id); return {sku: v ? v.sku : it.variant_id, qty: it.qty}; })}); }
     catch (e) { back(); return toast(e.auth ? 'Sesi berakhir, masuk lagi' : e.server ? e.message : 'Tidak ada koneksi; coba lagi'); }
     const k = S.queue.indexOf(q); if (k < 0) return back(); S.queue.splice(k, 1); q.payload.items.forEach(it => { const v = vById(it.variant_id); if (v) v.stok = r6((Number(v.stok) || 0) + it.qty); }); LS.set('queue', S.queue); LS.set('data', S.data); badge(); if (fromQ) queueSheet(); else qrefresh(); toast('Dihapus dan dicatat di server');
   },
@@ -67,6 +71,12 @@ const ACT = {
   pbopen: pbSheet, pbdel: el => { S.pb.items.splice(el.dataset.i, 1); pbSheet(); }, pbsave: pbSave,
   pbadd: () => { const q = dnum($('#pb_q').value), h = dnum($('#pb_h').value), id = $('#pb_m').value; if (!id || !(q > 0) || !(h >= 0) || $('#pb_h').value === '') return toast('Isi jumlah dan harga'); S.pb.items.push({id: id, qty: q, harga: h}); pbSheet(); },
   go_master: () => { S.tab = 'master'; render(); }, go_riwayat: () => { S.tab = 'riwayat'; render(); }, go_laporan: () => { S.tab = 'laporan'; render(); }, go_shopee: () => { S.tab = 'shopee'; render(); }, go_resep: () => { S.tab = 'resep'; render(); }, go_cek: () => { S.tab = 'cek'; render(); }, go_users: () => { S.tab = 'users'; render(); }, go_settings: () => { S.tab = 'settings'; render(); },
+  expvoid: el => { const why = (($('#xv_r') || {}).value || '').trim(); if (why.length < 3) return toast('Alasan pembatalan wajib diisi');
+    return busy('Membatalkan…', async () => { try { await api('expense.void', {id: el.dataset.id, alasan: why}); S.expLoaded = false; closeSheet(); loadExp(); toast('Biaya dibatalkan'); } catch (e) { toast(e.message); } }); },
+  pbhist: () => pbHist(), pbcancel: el => pbCancel(el.dataset.id), shapp: el => shiftApprove(el.dataset.id, el.dataset.d),
+  plock: () => { const d = ($('#pl_d') || {}).value || '', r = (($('#pl_r') || {}).value || '').trim(); if (r.length < 3) return toast('Alasan wajib diisi');
+    if (!confirm(d ? 'Kunci semua periode sampai ' + d + '? Biaya/impor pada tanggal itu dan sebelumnya akan ditolak.' : 'Buka semua kunci periode?')) return;
+    return busy('Menyimpan…', async () => { try { await api('period.lock', {sampai: d, alasan: r}); await loadData(); render(); toast('Kunci periode disimpan'); } catch (e) { toast(e.message); } }); },
   mt: el => { S.mt = el.dataset.k; vMaster(); }, medit: el => meditSheet(el.dataset.id), msave: el => mSave(el.dataset.id), mdel: el => mDel(el.dataset.id),
   uunlock: async el => { try { await api('user.unlock', {id: el.dataset.id}); closeSheet(); vUsers(); toast('Kunci akun dibuka'); } catch (e) { toast(e.message); } }, uedit: el => ueditSheet(el.dataset.id), usave: el => uSave(el.dataset.id), ssave: sSave,
   sync: () => busy('Memperbarui data…', async () => { try {
@@ -93,6 +103,7 @@ document.addEventListener('input', e => {
   if (k === 'pbsup') { S.pb.sup = v; return; }
   if (k === 'pbongkir') { S.pb.ongkir = v.replace(/\D/g, ''); return; }
   if (k === 'catatan') { S.catatan = v; return; }
+  if (k === 'ref') { S.ref = v; return; }
   if (k === 'diskon' || k === 'terima') { v = v.replace(/\D/g, ''); S[k] = v; return upd(); }
 });
 document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.chg === 'day') { S.day = e.target.value; vRiwayat(); } });

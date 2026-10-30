@@ -87,7 +87,10 @@ async function checkUpdates(force) {
 let flushing = false, flushDelay = 15000, flushTimer = null;
 const mineAll = () => S.data ? S.queue.filter(q => q.uid === S.data.user.uid || q.by === S.data.user.uid) : []; // milik user ini, atau diambil alih Owner
 const mine = () => S.queue.filter(x => x.status === 'pending' && (x.uid === S.data.user.uid || x.by === S.data.user.uid));
-const payloadOf = q => q.uid === S.data.user.uid ? q.payload : Object.assign({}, q.payload, {kasir_id: q.uid}); // Owner mengirim atas nama kasir asal
+/* F-15: server memakai waktu perangkat (client_ts) HANYA bila transaksi ditandai tertunda. Tertunda = sudah pernah dicoba kirim dan gagal (tries > 1) atau menunggu > 90 detik di antrean;
+   pengiriman pertama yang langsung berhasil memakai waktu server. */
+const delayed = q => (q.tries || 0) > 1 || Date.now() - (q.ts || Date.now()) > 90000;
+const payloadOf = q => { const b = delayed(q) ? Object.assign({}, q.payload, {offline: true}) : q.payload; return q.uid === S.data.user.uid ? b : Object.assign({}, b, {kasir_id: q.uid}); }; // Owner mengirim atas nama kasir asal
 const hasPending = () => !!S.data && mine().length > 0;
 const pendingQty = id => S.queue.reduce((a, q) => a + (q.status === 'pending' && sameOutlet(q) ? q.payload.items.filter(i => i.variant_id === id).reduce((b, i) => b + i.qty, 0) : 0), 0);
 function scheduleFlush() { // percobaan ulang hanya selama ada transaksi tertunda, dengan jeda yang makin panjang

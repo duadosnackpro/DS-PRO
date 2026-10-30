@@ -57,7 +57,7 @@ const MANAGE_ROLES = ['owner', 'admin'];
    MIN_SCHEMA = migrasi terakhir yang dibutuhkan klien ini (harus ada di supabase/migrations; dijaga tests/release_check.js).
    Database lebih lama => berhenti dengan pesan jelas (bukan galat 404 acak di tengah transaksi).
    Database mensyaratkan klien lebih baru (min_client) => minta perangkat memperbarui aplikasi. */
-const MIN_SCHEMA = '20261029000022';
+const MIN_SCHEMA = '20261031000024';
 const semverLt = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
 let schemaOkAt = 0;
 async function checkSchema(token) {
@@ -96,7 +96,7 @@ function toLegacy(cfg, r) { const o = {id: cfg.key ? cfg.key.map(k => r[cfg.m[k]
 
 async function masterSave(p, token) {
   if (p.table === 'expenses') {
-    const r = await rpc('expense_create', {outlet_id: outletId, request_id: uuid(), kategori: p.data.kategori, nominal: Number(p.data.nominal), catatan: p.data.catatan, tanggal: p.data.tanggal || undefined}, token);
+    const r = await rpc('expense_create', {outlet_id: p.data.lingkup === 'pusat' ? null : outletId, request_id: uuid(), kategori: p.data.kategori, nominal: Number(p.data.nominal), catatan: p.data.catatan, tanggal: p.data.tanggal || undefined}, token);
     return Object.assign({id: r.id}, p.data);
   }
   const cfg = MASTER[p.table]; if (!cfg) throw fail('Tabel ini belum didukung di backend Supabase: ' + p.table);
@@ -139,11 +139,13 @@ async function overrideGrant(p) {
   if (['owner', 'admin', 'supervisor'].indexOf(boot.role) < 0) throw fail('Akun ini tidak berwenang menyetujui di outlet ini.');
   // P1-5: persetujuan DISKON diterbitkan server dengan token penyetuju lalu token itu dibuang. Yang dibawa pulang hanya id persetujuan
   // (sekali pakai, terikat request_id dan nominal, berlaku 72 jam), aman disimpan di antrean offline. JWT penyetuju tidak pernah masuk antrean.
-  if (p.kind === 'diskon') {
-    const a = await rpc('approval_issue', {outlet_id: outletId, kind: 'diskon', request_id: p.request_id, amount: p.nilai}, t);
+  // P0 (F-03): retur dan hapus-antrean juga memakai persetujuan terbitan server (sekali pakai). Retur terikat ke transaksi asal (ref_id) dan nilai maksimum;
+  // kasir memanggil RPC dengan TOKEN SENDIRI sehingga retur tercatat di sesi/laci kasir, bukan di sesi penyetuju.
+  if (['diskon', 'retur', 'hapus'].indexOf(p.kind) >= 0) {
+    const a = await rpc('approval_issue', {outlet_id: outletId, kind: p.kind, request_id: p.request_id, amount: p.nilai, ref_id: p.ref_id}, t);
     return {token: 'sbap:' + a.approval_id};
   }
-  return {token: 'sbov:' + t};   // retur: dipakai langsung saat online untuk satu permintaan, tidak pernah masuk antrean
+  throw fail('Jenis persetujuan tidak dikenal.');
 }
 const approver = tok => (typeof tok === 'string' && tok.indexOf('sbov:') === 0) ? tok.slice(5) : null;
 const approvalId = tok => (typeof tok === 'string' && tok.indexOf('sbap:') === 0) ? tok.slice(5) : null;
@@ -161,8 +163,10 @@ async function recipeSave(p, token) {
 }
 async function masterList(p, token) {
   if (p.table !== 'expenses') throw fail('Daftar untuk tabel ini belum didukung di backend Supabase: ' + p.table);
-  const rows = await rest('expenses?select=id,expense_date,category,amount,note&outlet_id=eq.' + outletId + '&order=expense_date.desc,created_at.desc&limit=200', token);
-  return rows.map(x => ({id: x.id, tanggal: x.expense_date, kategori: x.category, nominal: Number(x.amount), catatan: x.note || ''}));
+  const rows = await rest('expenses?select=id,expense_date,category,amount,note,outlet_id,void_of,cash_session_id&or=(outlet_id.eq.' + outletId + ',outlet_id.is.null)&order=expense_date.desc,created_at.desc&limit=200', token);
+  const voided = {}; rows.forEach(x => { if (x.void_of) voided[x.void_of] = true; });   // F-16: biaya yang sudah punya baris pembalik
+  return rows.map(x => ({id: x.id, tanggal: x.expense_date, kategori: x.outlet_id ? x.category : x.category + ' (Pusat)', nominal: Number(x.amount), catatan: x.note || '',
+    pembalik: !!x.void_of, dibatalkan: !!voided[x.id], dari_laci: !!x.cash_session_id}));
 }
 // Pemeriksaan kesesuaian stok: saldo dibandingkan dengan jumlah riwayat mutasinya (rpc_stock_reconcile). Nama item diambil dari bootstrap.
 async function stockAudit(token) {
@@ -246,20 +250,28 @@ async function call(action, p, token, tokCb) {
       const r = await rest('sales?select=id,receipt_no,outlet_id,total&request_id=eq.' + encodeURIComponent(p.request_id) + '&limit=1', token);
       return r && r[0] ? {sale: {id: r[0].id, nomor: r[0].receipt_no, outlet_id: r[0].outlet_id, total: Number(r[0].total)}} : {sale: null};
     }
-    case 'sale.return': { const ap = approver(p.override_token); const q = Object.assign({}, p); delete q.override_token; return rpc('sale_return', q, ap || token); }
+    case 'sale.return': { const id = approvalId(p.override_token), q = Object.assign({}, p); delete q.override_token; if (id) q.approval_id = id; return rpc('sale_return', q, token); }
+    case 'sale.review': return rpc('sale_review', p, token);   // Owner/Supervisor menandai transaksi bertanda 'perlu ditinjau' sudah ditinjau
     case 'sale.detail': return rpc('sale_detail', p, token);
     case 'sales.list': return rpc('sales_list', withOutlet(p), token);
-    case 'sale.reject_log': return rpc('sale_reject_log', withOutlet(p), token);   // F3: dicatat di audit_logs (pelaku, outlet, alasan)
+    case 'sale.reject_log': { const q = withOutlet(p), id = approvalId(q.override_token); delete q.override_token; if (id) q.approval_id = id; return rpc('sale_reject_log', q, token); }   // F3: dicatat di audit_logs (pelaku, outlet, alasan)
     case 'sale.recover': throw fail('Tidak diperlukan: transaksi di server selalu atomik (selesai atau tidak tercatat).');
     case 'shift.summary': return rpc('cash_summary', withOutlet(), token);
     case 'shift.open': return rpc('cash_open', withOutlet(p), token);                 // F4: modal awal ditetapkan saat buka
     case 'cash.move': return rpc('cash_movement_add', p, token);                      // F4: kas masuk/keluar dengan alasan wajib
     case 'shift.close': return rpc('cash_close', p, token);
     case 'shift.list': {
-      const rows = await rest('cash_sessions?select=id,opened_at,closed_at,txn_count,totals,opening_cash,cash_out,expected_cash,actual_cash,difference,note,cashier_id&status=eq.closed&outlet_id=eq.' + outletId + '&order=closed_at.desc&limit=30', token);
-      return rows.map(x => ({id: x.id, kasir_id: x.cashier_id, kasir: '-', dari: x.opened_at, sampai: x.closed_at, jumlah_trx: x.txn_count, total_tunai: (x.totals || {}).tunai, total_transfer: (x.totals || {}).transfer, total_qris: (x.totals || {}).qris,
-        total_lain: (x.totals || {}).lain, total_semua: (x.totals || {}).total, uang_fisik: x.actual_cash, selisih_tunai: x.difference, catatan: x.note, modal_awal: x.opening_cash, kas_keluar: x.cash_out, tunai_diharapkan: x.expected_cash}));
+      return rpc('shift_list', withOutlet(), token);   // F-17: nama kasir, fisik_sebelumnya, status tinjauan; waktu dalam zona outlet (F-14)
     }
+    case 'shift.approve': return rpc('cash_approve', {id: p.id, catatan: p.catatan}, token);                          // F-17
+    case 'expense.void': return rpc('expense_void', {id: p.id, alasan: p.alasan, request_id: p.request_id || uuid()}, token);   // F-16
+    case 'purchase.list': {                                                                                           // F-16: pembelian terakhir outlet aktif
+      const rows = await rest('purchases?select=id,purchased_at,doc_ref,total,status,note,cancel_reason,supplier_id&outlet_id=eq.' + encodeURIComponent(outletId) + '&order=purchased_at.desc&limit=30', token);
+      return rows.map(x => ({id: x.id, waktu: x.purchased_at, ref: x.doc_ref || '', total: Number(x.total), status: x.status, catatan: x.note || '', alasan_batal: x.cancel_reason || '', supplier_id: x.supplier_id}));
+    }
+    case 'purchase.cancel': return rpc('purchase_cancel', {id: p.id, alasan: p.alasan, request_id: p.request_id || uuid()}, token);
+    case 'period.lock': return rpc('period_lock_set', {sampai: p.sampai, alasan: p.alasan}, token);                    // F-15 (Owner)
+    case 'hpp.backfill': return rpc('hpp_backfill', withOutlet({from: p.from, to: p.to, terapkan: !!p.terapkan}), token);   // F-08
     case 'stock.adjust': return rpc('stock_adjust', withOutlet(p), token);
     case 'purchase.create': return rpc('purchase_create', withOutlet(Object.assign({request_id: uuid()}, p)), token);
     case 'production.create': return rpc('production_create', Object.assign({kitchen_outlet_id: outletId, output_outlet_id: outletId}, p), token);
@@ -267,7 +279,7 @@ async function call(action, p, token, tokCb) {
     case 'production.cancel': return rpc('production_cancel', p, token);
     case 'production.list': return rpc('production_list', withOutlet(p), token);
     case 'dashboard.get': return rpc('dashboard', withOutlet(p), token);
-    case 'report.get': return rpc('report_legacy', withOutlet(p), token);
+    case 'report.get': return (p.type === 'konsolidasi' || p.type === 'konsolidasi_stok') ? rpc('report_konsolidasi', {type: p.type, from: p.from, to: p.to}, token) : rpc('report_legacy', withOutlet(p), token);   // F-07: semua outlet
     case 'recipe.save': return recipeSave(p, token);
     case 'recipe.copy': return rpc('recipe_copy', p, token);
     case 'master.list': return masterList(p, token);

@@ -154,13 +154,13 @@ do $$ declare s jsonb; r jsonb; e text; sid uuid; begin
   s := public.rpc_sale_create(jsonb_build_object('outlet_id', t.id('o1'), 'request_id', 'req-00000030', 'channel_id', t.id('ch'), 'metode_bayar', 'tunai',
         'items', jsonb_build_array(jsonb_build_object('variant_id', t.id('v2'), 'qty', 2)), 'diskon', 1000));
   sid := (s -> 'sale' ->> 'id')::uuid;
-  r := public.rpc_sale_return(jsonb_build_object('request_id', 'req-ret-0001', 'id', sid, 'alasan', 'rusak',
+  r := public.rpc_sale_return(jsonb_build_object('request_id', 'req-ret-0001', 'id', sid, 'alasan', 'rusak', 'restock', true,
         'items', jsonb_build_array(jsonb_build_object('variant_id', t.id('v2'), 'qty', 1))));
   perform t.ok((r ->> 'refund')::numeric = 17500, 'refund proporsional 17500, dapat ' || (r ->> 'refund'));
-  e := t.err('rpc_sale_return', jsonb_build_object('request_id', 'req-ret-0002', 'id', sid, 'alasan', 'lagi',
+  e := t.err('rpc_sale_return', jsonb_build_object('request_id', 'req-ret-0002', 'id', sid, 'alasan', 'lagi', 'restock', true,
         'items', jsonb_build_array(jsonb_build_object('variant_id', t.id('v2'), 'qty', 2))));
   perform t.ok(e like '%melebihi sisa%', 'retur berlebih ditolak: ' || coalesce(e, 'NULL'));
-  r := public.rpc_sale_return(jsonb_build_object('request_id', 'req-ret-0003', 'id', sid, 'alasan', 'sisanya', 'semua', true));
+  r := public.rpc_sale_return(jsonb_build_object('request_id', 'req-ret-0003', 'id', sid, 'alasan', 'sisanya', 'semua', true, 'restock', true));
   perform t.ok((r ->> 'refund')::numeric = 17500, 'retur terakhir mengambil sisa nilai (total retur = 35000-1000)');
   perform t.ok((select sum(total) from public.sales where id = sid or ref_sale_id = sid) = 0, 'transaksi + retur = 0');
   perform t.ok((select quantity from public.inventory_balances where outlet_id = t.id('o1') and variant_id = t.id('v2')) = 3, 'stok kembali penuh');
@@ -451,7 +451,7 @@ begin
   r := public.rpc_cash_summary(jsonb_build_object('outlet_id', o1));
   perform t.ok(r ->> 'sesi' is null and (r ->> 'wajib_buka')::boolean, 'ringkasan tanpa sesi melaporkan wajib_buka');
   perform public.rpc_cash_open(jsonb_build_object('outlet_id', o1, 'modal_awal', 50000));
-  perform public.rpc_cash_movement_add(jsonb_build_object('jenis', 'out', 'nominal', 5000, 'alasan', 'beli es batu'));
+  perform public.rpc_cash_movement_add(jsonb_build_object('jenis', 'out', 'nominal', 5000, 'alasan', 'beli es batu', 'kategori', 'Transport'));
   r := public.rpc_cash_summary(jsonb_build_object('outlet_id', o1));
   perform t.ok((r ->> 'modal_awal')::numeric = 50000 and jsonb_array_length(r -> 'gerakan') = 1, 'ringkasan memuat modal awal dan gerakan kas sesi ini');
   r := public.rpc_cash_close(jsonb_build_object('uang_fisik', 45000, 'modal_awal', 0, 'kas_keluar', 99999));

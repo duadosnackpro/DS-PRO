@@ -6,7 +6,7 @@
 //     kasir menekan "Muat ulang" di banner; halaman juga menunda pemuatan ulang sampai tidak ada layar/permintaan yang berjalan (lihat 14-mulai.js).
 //     Pada tingkat paket, ini sudah berperilaku stale-while-revalidate: browser memeriksa sw.js di latar belakang (updateViaCache: 'none') sementara versi lama tetap melayani.
 //  2) Aset lain milik situs sendiri (di luar CORE) = stale-while-revalidate: dijawab dari cache seketika, lalu diperbarui di latar belakang untuk pemakaian berikutnya.
-const VERSION = 'duado-v2.3.2';
+const VERSION = 'duado-v2.5.0';
 const CORE = ['./', 'index.html', 'css/app.css', 'js/config.js', 'js/sb-adapter.js', 'js/app.js', 'js/modules.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'fonts/baloo2-600.woff2', 'fonts/baloo2-800.woff2'];
 const OPTIONAL = []; // v1.9.7: font dan ikon kini dikirim di dalam paket dan wajib ada (diperiksa tests/release_check.js), jadi masuk CORE
 const FOTO = 'duado-foto'; // cache foto produk: TIDAK ikut versi (tidak dihapus saat pembaruan); alamat foto tidak pernah berubah isinya, jadi aman cache-first. Isinya dirapikan oleh aplikasi (fotoWarm).

@@ -59,14 +59,17 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   const ov = load((url, opt, body) => {
     if (/grant_type=password/.test(url)) return {status: 200, body: {access_token: body.email.startsWith('own') ? 'T_OWNER' : 'T_KASIR', refresh_token: 'x'}};
     if (/rpc_bootstrap/.test(url)) return {status: 200, body: boot(opt.headers.Authorization === 'Bearer T_OWNER' ? 'owner' : 'kasir')};
+    if (/rpc_approval_issue/.test(url)) return {status: 200, body: {approval_id: 'bbbbbbbb-0000-0000-0000-000000000002'}};
     return {status: 200, body: {sale: {nomor: 'OK'}}};
   });
   await ov.S.call('login', {username: 'kasir1', pin: '123789'});
-  const g = await ov.S.call('override.grant', {username: 'owner1', pin: '123789'}); ok(g.token === 'sbov:T_OWNER', 'override.grant memberi token approver untuk owner');
+  const g = await ov.S.call('override.grant', {username: 'owner1', pin: '123789', kind: 'retur', request_id: 'rt-1234567', nilai: 20000, ref_id: 's1'}); ok(g.token === 'sbap:bbbbbbbb-0000-0000-0000-000000000002', 'override.grant(retur) memberi id persetujuan server');
+  const ai0 = ov.calls.filter(c => /rpc_approval_issue/.test(c.url)).pop(); ok(ai0.body.p.kind === 'retur' && ai0.body.p.ref_id === 's1' && ai0.body.p.amount === 20000 && ai0.opt.headers.Authorization === 'Bearer T_OWNER', 'persetujuan retur terikat transaksi asal + nilai, diterbitkan dengan token penyetuju');
   try { await ov.S.call('override.grant', {username: 'kasir2', pin: '123789'}); ok(false, 'kasir tidak boleh menyetujui'); } catch (e) { ok(/tidak berwenang/.test(e.message), 'akun non-supervisor ditolak sebagai approver'); }
   await ov.S.call('sale.return', {request_id: 'rt-1234567', id: 's1', override_token: g.token}, 'T_KASIR');
   const rc = ov.calls.filter(c => /rpc_sale_return/.test(c.url)).pop();
-  ok(rc.opt.headers.Authorization === 'Bearer T_OWNER' && !('override_token' in rc.body.p), 'retur dijalankan atas nama approver dan token tidak dikirim ke server');
+  ok(rc.opt.headers.Authorization === 'Bearer T_KASIR' && !('override_token' in rc.body.p) && rc.body.p.approval_id === 'bbbbbbbb-0000-0000-0000-000000000002', 'F-03: retur dijalankan dengan token KASIR + approval_id (bukan JWT approver)');
+  try { await ov.S.call('override.grant', {username: 'owner1', pin: '123789'}); ok(false, 'jenis persetujuan wajib'); } catch (e) { ok(/tidak dikenal/.test(e.message), 'override.grant tanpa jenis ditolak'); }
 
   // aksi yang dilayani fungsi database (dashboard, laporan, produksi, resep, biaya, audit stok)
   const A = {BRG: 'Bearer ' + good};
@@ -78,10 +81,10 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
     if (/rpc_recipe_save/.test(url)) return {status: 200, body: {recipe: {id: 'r-1', nama: 'Resep A'}}};
     if (/rpc_recipe_copy/.test(url)) return {status: 200, body: {dibuat: [{id: 'r-2'}]}};
     if (/recipe_items\?/.test(url)) return rt.__failItems ? new Error('offline') : {status: 200, body: [{id: 'i1', recipe_id: 'r-1', material_id: 'm1', qty: 2}]};
-    if (/\/expenses\?/.test(url)) return {status: 200, body: [{id: 'e1', expense_date: '2026-10-28', category: 'Gas', amount: '15000.00', note: null}]};
+    if (/\/expenses\?/.test(url)) return {status: 200, body: [{id: 'e1', expense_date: '2026-10-28', category: 'Gas', amount: '15000.00', note: null, outlet_id: 'o1'}]};
     if (/rpc_stock_reconcile/.test(url)) return {status: 200, body: {jumlah: 2, selisih: [{outlet_id: 'o1', item_type: 'variant', item_id: 'v1', saldo: 5, ledger: 4, selisih: 1}, {outlet_id: 'o1', item_type: 'material', item_id: 'm1', saldo: '2.5', ledger: 3, selisih: '-0.5'}]}};
     if (/rpc_bootstrap/.test(url)) return {status: 200, body: Object.assign(boot('owner'), {products: [{id: 'p1', nama: 'Makaroni'}], variants: [{id: 'v1', product_id: 'p1', ukuran: '70', level_pedas: 'Level 1'}, {id: 'v2', product_id: 'p1', ukuran: '100'}], materials: [{id: 'm1', nama: 'Tepung'}]})};
-    if (/rpc_(sale_reject_log|cash_open|cash_movement_add|cash_summary|transfer_action|user_unlock)/.test(url)) return {status: 200, body: {ok: true}};
+    if (/rpc_(sale_reject_log|cash_open|cash_movement_add|cash_summary|transfer_action|user_unlock|shift_list|cash_approve|expense_void|purchase_cancel|period_lock_set|hpp_backfill)/.test(url)) return {status: 200, body: {ok: true}};
     return {status: 404, body: {message: 'x'}};
   };
   const q = load(hh); q.S.setOutlet('o1');
@@ -111,8 +114,22 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   ok(rt.user_unlock.user_id === 'u1', 'user.unlock => rpc_user_unlock (bukan stub)');
   const cp = await q.S.call('recipe.copy', {source_id: 'r-1', targets: [{variant_id: 'v2', nama: 'S'}]}, good);
   ok(rt.recipe_copy.source_id === 'r-1' && cp.dibuat.length === 1, 'recipe.copy => rpc_recipe_copy');
+  // ---- P1 (F-08, F-15, F-16, F-17) ----
+  await q.S.call('shift.list', {}, good);
+  ok(rt.shift_list && rt.shift_list.outlet_id === 'o1', 'shift.list => rpc_shift_list (nama kasir, fisik_sebelumnya dari server)');
+  await q.S.call('shift.approve', {id: 's1', catatan: 'uang kembalian salah'}, good);
+  ok(rt.cash_approve.id === 's1' && rt.cash_approve.catatan === 'uang kembalian salah', 'shift.approve => rpc_cash_approve dengan catatan');
+  await q.S.call('expense.void', {id: 'e1', alasan: 'salah ketik'}, good);
+  ok(rt.expense_void.id === 'e1' && rt.expense_void.alasan === 'salah ketik' && /^[0-9a-f-]{8,}|^x/.test(rt.expense_void.request_id), 'expense.void => rpc_expense_void dengan request_id');
+  await q.S.call('purchase.cancel', {id: 'p1', alasan: 'dobel input'}, good);
+  ok(rt.purchase_cancel.id === 'p1', 'purchase.cancel => rpc_purchase_cancel');
+  await q.S.call('period.lock', {sampai: '2026-09-30', alasan: 'tutup buku'}, good);
+  ok(rt.period_lock_set.sampai === '2026-09-30', 'period.lock => rpc_period_lock_set');
+  await q.S.call('hpp.backfill', {from: '2026-10-01', to: '2026-10-28', terapkan: false}, good);
+  ok(rt.hpp_backfill.outlet_id === 'o1' && rt.hpp_backfill.terapkan === false, 'hpp.backfill => rpc_hpp_backfill (pratinjau bawaan)');
   const ex = await q.S.call('master.list', {table: 'expenses'}, good);
-  ok(ex.length === 1 && ex[0].tanggal === '2026-10-28' && ex[0].kategori === 'Gas' && ex[0].nominal === 15000 && ex[0].catatan === '' && /outlet_id=eq\.o1/.test(q.calls.filter(c => /\/expenses\?/.test(c.url)).pop().url), 'master.list biaya dipetakan ke bentuk legacy dan dibatasi outlet aktif');
+  ok(ex[0].dibatalkan === false && ex[0].pembalik === false, 'daftar biaya menandai dibatalkan/pembalik (F-16)');
+  ok(ex.length === 1 && ex[0].tanggal === '2026-10-28' && ex[0].kategori === 'Gas' && ex[0].nominal === 15000 && ex[0].catatan === '' && /outlet_id\.eq\.o1,outlet_id\.is\.null/.test(q.calls.filter(c => /\/expenses\?/.test(c.url)).pop().url), 'master.list biaya dipetakan ke bentuk legacy: outlet aktif + biaya pusat');
   try { await q.S.call('master.list', {table: 'channels'}, good); ok(false, 'tabel lain belum didukung'); } catch (e) { ok(e.server && /belum didukung/.test(e.message), 'master.list tabel lain => pesan jelas'); }
   const au = await q.S.call('stock.audit', {}, good);
   ok(au.diperiksa === 3 && au.selisih.length === 2, 'stock.audit menghitung item diperiksa dan selisih');
@@ -193,7 +210,7 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
 
   // ---- P0-3: penjaga versi skema ----
   const sg = (reply, cfg) => { const x = load((url, opt, body) => /grant_type=password/.test(url) ? {status: 200, body: {access_token: good, refresh_token: 'r1'}} : /rpc_bootstrap/.test(url) ? {status: 200, body: boot('kasir')} : {status: 404, body: {message: 'x'}}, cfg); x.schema.reply = reply; return x; };
-  let sgx = sg(() => ({status: 200, body: {version: '20261029000022', min_client: '2.3.0'}}), {VERSION: '2.3.1'});
+  let sgx = sg(() => ({status: 200, body: {version: '20261031000024', min_client: '2.3.0'}}), {VERSION: '2.3.1'});
   ok((await sgx.S.call('login', {username: 'tia', pin: '123789'})).uid === 'u1', 'skema sama dengan MIN_SCHEMA => login lolos');
   const nSch = () => sgx.calls.filter(c => /rpc_schema_version/.test(c.url)).length, n1 = nSch();
   await sgx.S.call('bootstrap', {}, good); ok(nSch() === n1, 'hasil pemeriksaan skema disimpan sementara (bootstrap tidak memanggil ulang)');
@@ -202,7 +219,7 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   ok(sgx.store.sb_rt === undefined || sgx.store.sb_rt === null, 'login yang diblokir skema tidak meninggalkan refresh token');
   sgx = sg(() => ({status: 200, body: {version: '20261027000015', min_client: '2.3.0'}}), {VERSION: '2.3.1'});
   try { await sgx.S.call('login', {username: 'tia', pin: '123789'}); ok(false, 'DB lebih lama harus memblokir'); } catch (e) { ok(e.schema && /20261027000015/.test(e.message), 'DB lebih lama dari MIN_SCHEMA => diblokir'); }
-  sgx = sg(() => ({status: 200, body: {version: '20261029000022', min_client: '9.0.0'}}), {VERSION: '2.3.1'});
+  sgx = sg(() => ({status: 200, body: {version: '20261031000024', min_client: '9.0.0'}}), {VERSION: '2.3.1'});
   try { await sgx.S.call('login', {username: 'tia', pin: '123789'}); ok(false, 'klien terlalu lama harus memblokir'); } catch (e) { ok(e.schema && /terlalu lama/.test(e.message), 'klien lebih lama dari min_client => minta perbarui'); }
   sgx = sg(() => ({status: 200, body: {version: 'unknown', min_client: '2.3.0'}}), {VERSION: '2.3.1'});
   ok((await sgx.S.call('login', {username: 'tia', pin: '123789'})).uid === 'u1', "versi 'unknown' (migrasi tanpa CLI) tidak memblokir klien");
@@ -215,6 +232,7 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   const ap = load((url, opt, body) => {
     if (/grant_type=password/.test(url)) return {status: 200, body: {access_token: body.email.startsWith('own') ? 'T_OWNER' : 'T_KASIR', refresh_token: 'x'}};
     if (/rpc_bootstrap/.test(url)) return {status: 200, body: boot(opt.headers.Authorization === 'Bearer T_OWNER' ? 'owner' : 'kasir')};
+    if (/rpc_(report_konsolidasi|sale_reject_log)/.test(url)) return {status: 200, body: {ok: true}};
     if (/rpc_approval_issue/.test(url)) return {status: 200, body: {approval_id: 'aaaaaaaa-0000-0000-0000-000000000001'}};
     if (/rpc_sale_create|rpc_sale_batch/.test(url)) return {status: 200, body: /batch/.test(url) ? [{ok: true, data: {}}] : {sale: {nomor: 'X-1'}}};
     return {status: 404, body: {message: 'x'}};
@@ -224,8 +242,12 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   ok(gd.token === 'sbap:aaaaaaaa-0000-0000-0000-000000000001', 'override.grant(diskon) mengembalikan id persetujuan server, bukan JWT: ' + gd.token);
   const ai = ap.calls.filter(c => /rpc_approval_issue/.test(c.url)).pop();
   ok(ai.opt.headers.Authorization === 'Bearer T_OWNER' && ai.body.p.request_id === 'rq-diskon-1' && ai.body.p.amount === 5000 && ai.body.p.kind === 'diskon' && ai.body.p.outlet_id === 'o1', 'persetujuan diterbitkan dengan token PENYETUJU, terikat request_id dan nominal');
-  const gr = await ap.S.call('override.grant', {username: 'owner1', pin: '123789'}, 'T_KASIR');
-  ok(gr.token === 'sbov:T_OWNER', 'retur (tanpa kind) tetap memakai token approver langsung');
+  const gh = await ap.S.call('override.grant', {username: 'owner1', pin: '123789', kind: 'hapus', request_id: 'rq-hapus-01', nilai: 0}, 'T_KASIR');
+  ok(gh.token.indexOf('sbap:') === 0 && ap.calls.filter(c => /rpc_approval_issue/.test(c.url)).pop().body.p.kind === 'hapus', 'persetujuan hapus-antrean juga lewat server');
+  await ap.S.call('sale.reject_log', {request_id: 'rq-hapus-01', aksi: 'hapus', alasan: 'batal', override_token: gh.token}, 'T_KASIR');
+  const rl = ap.calls.filter(c => /rpc_sale_reject_log/.test(c.url)).pop(); ok(rl.body.p.approval_id === gh.token.slice(5) && !('override_token' in rl.body.p), 'reject_log membawa approval_id, bukan token');
+  await ap.S.call('report.get', {type: 'konsolidasi', from: '2026-10-01', to: '2026-10-30'}, 'T_KASIR');
+  const rk = ap.calls.filter(c => /rpc_report_konsolidasi/.test(c.url)).pop(); ok(rk && rk.body.p.type === 'konsolidasi' && !('outlet_id' in rk.body.p), 'F-07: report.get(konsolidasi) => rpc_report_konsolidasi tanpa outlet');
   await ap.S.call('sale.batch', {sales: [{request_id: 'rq-diskon-1', items: [], override: {diskon: gd.token}}]}, 'T_KASIR');
   const bb = ap.calls.filter(c => /rpc_sale_batch/.test(c.url)).pop(), s0 = bb.body.p.sales[0];
   ok(s0.approval_id === 'aaaaaaaa-0000-0000-0000-000000000001' && !('override' in s0) && bb.opt.headers.Authorization === 'Bearer T_KASIR', 'sale.batch: approval_id dikirim dengan token kasir; override tidak diteruskan');

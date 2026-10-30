@@ -65,12 +65,13 @@ const CMP = {hari: 'vs kemarin', minggu: 'vs 7 hari sebelumnya', bulan: 'vs peri
 function drawDash(d) {
   const c = d.cur, p = d.prev, tot = d.channels.reduce((a, x) => a + x.omzet, 0), maxQ = Math.max(1, ...d.top.map(t => t.qty)), lab = CMP[d.period] || 'vs sebelumnya';
   const days = Math.round((new Date(d.to + 'T12:00:00') - new Date(d.from + 'T12:00:00')) / 86400000) + 1, pto = d.pto || A.addDays(d.from, -1), pfrom = d.pfrom || A.addDays(pto, -(days - 1)); S.dser = d.series;
-  $('#dbody').innerHTML = '<div id="hppw"></div>' + (d.stok_minus && d.stok_minus.length ? '<div class="warn-b" role="alert"><div><b>Stok minus, perlu opname:</b> ' + esc(d.stok_minus.slice(0, 4).map(x => x.nama + ' (' + dec(x.stok) + ')').join(', ')) + (d.stok_minus.length > 4 ? ' dan ' + (d.stok_minus.length - 4) + ' lainnya' : '') + '<div class="muted">Penjualan tetap tercatat; stok server lebih kecil dari stok fisik.</div></div><button class="btn pri sm" data-act="tab" data-t="stok">Buka Stok</button></div>' : '') + (d.peringatan || []).map(w => '<div class="warn-b" role="alert"><div>' + esc(w) + '</div><button class="btn pri sm" data-act="go_settings">Pengaturan</button></div>').join('') + '<p class="muted rcap">' + esc(idRange(d.from, d.to)) + ' · omzet tanpa PPN · pembanding: ' + esc(idRange(pfrom, pto)) + '</p>' + heroHtml(d, lab) + '<div class="kgrid k3">' + kpi('Transaksi', num(c.trx), 'Rata-rata ' + rp(c.trx ? c.omzet / c.trx : 0)) +
-    kpi('Laba kotor', rp(c.laba), '<span id="mgn">' + (c.omzet ? pct(c.laba / c.omzet * 100) : '0%') + ' margin</span>') + kpi('Laba bersih', rp(d.laba_bersih), 'setelah fee dan biaya') + '</div>' +
+  $('#dbody').innerHTML = '<div id="hppw"></div>' + (d.stok_minus && d.stok_minus.length ? '<div class="warn-b" role="alert"><div><b>Stok minus, perlu opname:</b> ' + esc(d.stok_minus.slice(0, 4).map(x => x.nama + ' (' + dec(x.stok) + ')').join(', ')) + (d.stok_minus.length > 4 ? ' dan ' + (d.stok_minus.length - 4) + ' lainnya' : '') + '<div class="muted">Penjualan tetap tercatat; stok server lebih kecil dari stok fisik.</div></div><button class="btn pri sm" data-act="tab" data-t="stok">Buka Stok</button></div>' : '') + (d.review_trx ? '<div class="warn-b" role="alert"><div><b>' + num(d.review_trx) + ' transaksi perlu ditinjau</b> (diterima dengan harga server setelah tertunda/offline).</div><button class="btn pri sm" data-act="tab" data-t="riwayat">Buka Riwayat</button></div>' : '') + (d.peringatan || []).map(w => { const o = typeof w === 'string' ? {teks: w, aksi: 'set'} : w, b = o.aksi === 'hpp' ? (A.can('manage') ? '<button class="btn pri sm" data-act="hppfix">Perbaiki HPP</button>' : '') : o.aksi === 'stok' ? '<button class="btn pri sm" data-act="tab" data-t="stok">Buka Stok</button>' : '<button class="btn pri sm" data-act="go_settings">Pengaturan</button>'; return '<div class="warn-b" role="alert"><div>' + esc(o.teks) + '</div>' + b + '</div>'; }).join('') + '<p class="muted rcap">' + esc(idRange(d.from, d.to)) + ' · omzet tanpa PPN · pembanding: ' + esc(idRange(pfrom, pto)) + '</p>' + heroHtml(d, lab) + '<div class="kgrid k3">' + kpi('Transaksi', num(c.trx), 'Rata-rata ' + rp(c.trx ? c.omzet / c.trx : 0)) +
+    kpi('Laba kotor', rp(c.laba), '<span id="mgn">' + (c.omzet ? pct(c.laba / c.omzet * 100) : '0%') + ' margin</span>') + kpi('Laba bersih', rp(d.laba_bersih), 'setelah fee, biaya' + (d.kerugian ? ', kerugian stok ' + rp(d.kerugian) : '')) + '</div>' +
     '<div class="li" style="display:block"><b>Per channel</b><div style="display:block">' + donut(d.channels, tot) + '<div style="flex:1">' + (d.channels.map((x, i) => '<div class="kv"><span><span class="lgd" style="background:' + COL[i % 5] + ';margin-left:0"></span>' + esc(x.nama) + '</span><span>' + (tot ? pct(x.omzet / tot * 100) : '0%') + '</span></div>').join('') || '<span class="muted">Belum ada penjualan</span>') + '</div></div></div>' +
     '<div class="li" style="display:block"><b>Produk terlaris</b>' + (d.top.map(t => '<div style="margin-top:6px"><div class="kv"><span>' + esc(t.nama) + '</span><span>' + num(t.qty) + ' pcs</span></div><div class="bar"><i style="width:' + Math.round(t.qty / maxQ * 100) + '%"></i></div></div>').join('') || '<div class="muted">Belum ada data</div>') + '</div>' +
     '<div class="li" style="display:block"><b>Perlu perhatian</b>' + (d.low.map(l => '<div class="kv"><span>' + esc(l.nama) + '</span><span><span class="tag">Menipis</span> ' + dec(l.stok) + ' ' + esc(l.satuan) + '</span></div>').join('') || '<div class="muted">Semua stok bahan aman</div>') + (d.biaya ? kv('Biaya operasional', rp(d.biaya)) : '') + '</div>';
-  if (c.trx) hppCheck(d.from, d.to).then(v => { if (!v.n || !$('#hppw')) return; $('#hppw').innerHTML = warnBanner(v); const mg = $('#mgn'); if (mg && c.omzet && c.laba / c.omzet >= .995) mg.innerHTML = qMark + ' margin belum bisa dihitung'; }).catch(() => {});
+  S.dashRange = {from: d.from, to: d.to};
+  if (c.trx && !(d.peringatan || []).some(w => w && w.aksi === 'hpp')) hppCheck(d.from, d.to).then(v => { if (!v.n || !$('#hppw')) return; $('#hppw').innerHTML = warnBanner(v); const mg = $('#mgn'); if (mg && c.omzet && c.laba / c.omzet >= .995) mg.innerHTML = qMark + ' margin belum bisa dihitung'; }).catch(() => {});
 }
 
 /* ---------- Biaya produksi (dipakai pratinjau, sama dengan hitungan server) ---------- */
@@ -212,9 +213,9 @@ function rfv() {
 }
 
 /* ---------- Laporan ---------- */
-const RTYPES_ALL = [['labarugi', 'Laba rugi'], ['penjualan', 'Penjualan'], ['channel', 'Channel'], ['hpp', 'HPP & margin'], ['stok', 'Stok & nilai'], ['produksi', 'Produksi'], ['pembelian', 'Pembelian'], ['pengeluaran', 'Biaya']];
+const RTYPES_ALL = [['labarugi', 'Laba rugi'], ['penjualan', 'Penjualan'], ['channel', 'Channel'], ['hpp', 'HPP & margin'], ['stok', 'Stok & nilai'], ['produksi', 'Produksi'], ['pembelian', 'Pembelian'], ['pengeluaran', 'Biaya'], ['metode', 'Pembayaran per metode'], ['transit', 'Dalam perjalanan'], ['penyesuaian', 'Penyesuaian stok'], ['selisih_kas', 'Selisih kas'], ['konsolidasi', 'Semua outlet: laba rugi'], ['konsolidasi_stok', 'Semua outlet: nilai stok']];
 /* F7: jenis laporan mengikuti peran (sama dengan rpc_report_legacy): tanpa akses biaya, laba rugi dan HPP disembunyikan. */
-const rtypes = () => RTYPES_ALL.filter(t => A.can('cost') || ['labarugi', 'hpp'].indexOf(t[0]) < 0);
+const rtypes = () => RTYPES_ALL.filter(t => /^konsolidasi/.test(t[0]) ? (A.can('cost') && (S.data.outlets || []).length > 1) : (A.can('cost') || ['labarugi', 'hpp'].indexOf(t[0]) < 0));   // F-07: laporan semua outlet (hanya keanggotaan global; server yang menegakkan)
 const PRE = [['today', 'Hari ini'], ['yday', 'Kemarin'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['lmonth', 'Bulan lalu'], ['custom', 'Custom']];
 S.rpre = 'month';
 function setPreset() {
@@ -224,7 +225,7 @@ function setPreset() {
 }
 function vLaporan(skipRun) {
   const RTYPES = rtypes(); if (!RTYPES.some(t => t[0] === S.rt)) S.rt = RTYPES[0][0];
-  const noDate = ['stok', 'hpp'].indexOf(S.rt) >= 0, tabs = RTYPES.map(t => '<button class="chip ' + (S.rt === t[0] ? 'on' : '') + '" data-act="rt" data-t="' + t[0] + '">' + t[1] + '</button>').join('');
+  const noDate = ['stok', 'hpp', 'transit', 'konsolidasi_stok'].indexOf(S.rt) >= 0, tabs = RTYPES.map(t => '<button class="chip ' + (S.rt === t[0] ? 'on' : '') + '" data-act="rt" data-t="' + t[0] + '">' + t[1] + '</button>').join('');
   $('#main').innerHTML = '<button class="chip" data-act="tab" data-t="menu">← Menu</button><div class="rt-chips" style="margin-top:8px">' + wrapChips(tabs) + '</div>' +
     '<label class="rt-sel" style="margin-top:8px">Jenis laporan<select class="inp" data-chg="rtsel">' + RTYPES.map(t => '<option value="' + t[0] + '"' + (S.rt === t[0] ? ' selected' : '') + '>' + t[1] + '</option>').join('') + '</select></label>' +
     (noDate ? '' : wrapChips(PRE.map(p => '<button class="chip ' + (S.rpre === p[0] ? 'on' : '') + '" data-act="rpre" data-p="' + p[0] + '">' + p[1] + '</button>').join('')) + '<p class="muted rcap">' + esc(idRange(S.rfrom, S.rto)) + '</p>' +
@@ -237,7 +238,7 @@ function runReport() {
   A.vload('report.get', {type: want, from: S.rfrom, to: S.rto}, r => {
     if (S.tab !== 'laporan' || S.rt !== want || !$('#rres')) return; S.rres = r;
     const mgHpp = !A.can('cost') ? {} : r.type === 'penjualan' ? {7: 5} : r.type === 'hpp' ? {6: 5, 7: 5} : {}, cell = (row, i, v) => (mgHpp[i] !== undefined && !(Number(row[mgHpp[i]]) > 0)) ? qMark : (v === '' || v == null) && r.fmt[i] !== 'txt' ? '-' : fmtCell(v, r.fmt[i]); // margin tanpa HPP tampil ?; kolom angka kosong tampil -
-    $('#rres').innerHTML = '<div id="hppw"></div><b>' + esc(r.title) + '</b> <span class="muted">' + (['stok', 'hpp'].indexOf(want) >= 0 ? 'kondisi saat ini' : esc(idRange(r.from, r.to))) + '</span>' +
+    $('#rres').innerHTML = '<div id="hppw"></div><b>' + esc(r.title) + '</b> <span class="muted">' + (['stok', 'hpp', 'transit', 'konsolidasi_stok'].indexOf(want) >= 0 ? 'kondisi saat ini' : esc(idRange(r.from, r.to))) + '</span>' +
       (r.peringatan ? '<div class="warn-b" role="alert"><div><b>Perhatian:</b> ' + esc(r.peringatan) + '</div></div>' : '') +
       (r.summary.length ? '<div class="kgrid" style="margin-top:8px">' + r.summary.map(s => kpi(esc(s.label), /^Margin/.test(s.label) ? '<span class="mgv" data-v="' + s.value + '">' + fmtCell(s.value, s.fmt) + '</span>' : fmtCell(s.value, s.fmt), '')).join('') + '</div>' : '') +
       (r.rows.length ? '<div class="tw"><table><thead><tr>' + r.columns.map((c, i) => '<th class="' + (r.fmt[i] === 'txt' ? '' : 'n') + '">' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
@@ -376,6 +377,25 @@ Object.assign(ACT, {
       const r = await api('production.complete', {id: S.pd.id, qty_hasil: N(S.pd.qty), tenaga_kerja: S.pd.tk === '' ? '' : N(S.pd.tk), overhead: S.pd.oh === '' ? '' : N(S.pd.oh)});
       r.materials.forEach(u => { const m = mById(u.id); if (m) m.stok = u.stok; }); const v = A.vById(r.variant.id); if (v) { v.stok = r.variant.stok; v.hpp_rata2 = r.variant.hpp_rata2; }
       LS.set('data', S.data); closeSheet(); toast('Produksi selesai. HPP per unit ' + rp(r.costs.hpp_per_unit)); vProduksi();
+    } catch (e) {
+      /* F-08: server menolak bahan tanpa harga. Supervisor/owner boleh melanjutkan dengan sengaja (mis. bahan memang gratis). */
+      if (/belum punya harga/.test(e.message || '') && A.can('approve') && confirm(e.message + '\n\nLanjutkan tanpa harga bahan itu? HPP produk akan lebih rendah dari sebenarnya.')) {
+        try { const r2 = await api('production.complete', {id: S.pd.id, qty_hasil: N(S.pd.qty), tenaga_kerja: S.pd.tk === '' ? '' : N(S.pd.tk), overhead: S.pd.oh === '' ? '' : N(S.pd.oh), izinkan_bahan_tanpa_harga: true});
+          r2.materials.forEach(u => { const m = mById(u.id); if (m) m.stok = u.stok; }); const v2 = A.vById(r2.variant.id); if (v2) { v2.stok = r2.variant.stok; v2.hpp_rata2 = r2.variant.hpp_rata2; }
+          LS.set('data', S.data); closeSheet(); toast('Produksi selesai. HPP per unit ' + rp(r2.costs.hpp_per_unit)); vProduksi(); } catch (e2) { toast(e2.message); }
+        return;
+      }
+      toast(e.message);
+    }
+  }),
+  /* F-08: perbaiki HPP kosong pada penjualan periode Beranda: pratinjau dampak dulu, baru terapkan (hanya Owner/Admin; tercatat di audit). */
+  hppfix: () => busy('Menghitung…', async () => {
+    const R = S.dashRange; if (!R) return;
+    try {
+      const pre = await api('hpp.backfill', {from: R.from, to: R.to, terapkan: false});
+      if (!pre.baris) return toast(pre.tanpa_harga ? pre.tanpa_harga + ' baris belum bisa diperbaiki karena HPP produknya masih kosong. Isi HPP lewat Stok dulu.' : 'Tidak ada baris yang perlu diperbaiki.');
+      if (!confirm(pre.baris + ' baris penjualan (' + R.from + ' s/d ' + R.to + ') akan diberi HPP rata-rata saat ini. Perkiraan tambahan HPP: ' + rp(pre.dampak_hpp) + ' (laba periode ini turun sebesar itu). Terapkan?')) return;
+      await api('hpp.backfill', {from: R.from, to: R.to, terapkan: true}); toast('HPP diperbaiki'); vDash(true);
     } catch (e) { toast(e.message); }
   }),
   redit: el => redit(el.dataset.id),

@@ -10,3 +10,5 @@ psql() { command psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q "$@"; }
 for f in migrations/*.sql; do echo "== $f"; psql -f "$f"; done
 psql -f seed.sql
 psql -f tests/001_multi_outlet.test.sql
+psql -f tests/002_p0_kontrol.test.sql
+psql -f tests/003_p1_kontrol.test.sql

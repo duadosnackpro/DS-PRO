@@ -1,4 +1,4 @@
-# DUADO POS — backend Supabase (v2.3.2, multi-outlet)
+# DUADO POS — backend Supabase (v2.5.0, multi-outlet)
 
 Implementasi PRD "v2.0.0 → Multi-Outlet Ready", Fase 1–2 (+ pondasi Fase 4–5). Satu database melayani semua outlet; isolasi ditegakkan di database.
 
@@ -80,7 +80,7 @@ Jangan arahkan ke database berisi data. Tes memakai `rpc_*` sebagai pengguna `au
 
 Aksi yang memang masih stub (jangan dianggap fitur): `sku.auto` (tidak dipanggil UI; SKU otomatis dibuat di klien), `archive.*`, `data.reset`, dan laporan jenis `hpp`. Aksi yang sebelumnya tercatat "belum dipetakan" kini dilayani adapter: `setting.logo`, `produk.foto`, `addon.create`, `overhead.saran`, `shopee.import`; tambahan v2.3.2: `sale.lookup`, `override.grant` jenis `diskon`, `master.remove` (hapus sungguhan untuk harga channel).
 
-## Operasi (v2.3.2)
+## Operasi (v2.4.0)
 **Retensi (P1-1).** `app.purge_idempotency(30)` menghapus `idempotency_keys` dan `approvals` lebih tua dari 30 hari (jendela transaksi offline hanya 72 jam). Dijadwalkan `pg_cron` 03:15 harian bila ekstensi tersedia; di Supabase aktifkan *Database → Extensions → pg_cron* lalu cek `select * from cron.job`. Tanpa `pg_cron`, jalankan fungsinya manual/terjadwal dari luar. `audit_logs` dan `stock_movements` sengaja tidak dipurge (jejak keuangan); pantau ukurannya: `select relname, pg_size_pretty(pg_total_relation_size(oid)) from pg_class where relname in ('audit_logs','stock_movements','sales','sale_items')`. Rencanakan partisi bulanan atau arsip ke tabel dingin bila salah satunya melewati beberapa juta baris.
 
 **Antrean offline dan idempotensi (P1-2).** Hash `sale` tidak memuat `client_ts` dan `kasir_id`, jadi kiriman ulang Owner (ambil-alih) memperoleh hasil lama. Isi berbeda dengan `request_id` sama tetap ditolak (23505) secara sengaja: menjawab "sukses" akan menghilangkan transaksi kedua tanpa jejak. Klien memeriksa `sale.lookup` dulu pada 23505; bila transaksinya sudah ada, antrean dianggap selesai.
@@ -94,3 +94,24 @@ Aksi yang memang masih stub (jangan dianggap fitur): `sku.auto` (tidak dipanggil
 
 ## Penguncian akun (0021, F8) dan kata sandi Owner/Admin
 Aktifkan sekali di dasbor: *Authentication -> Hooks -> Password verification* -> pilih fungsi `public.hook_password_verification_attempt`. Ketersediaan hook ini bergantung pada paket Supabase Anda; tanpa hook, penguncian tidak aktif (hanya rate limit Auth). 5 salah dalam 15 menit mengunci 15 menit (memanjang bila berulang); Owner/Admin membuka kunci di Menu -> Pengguna. Owner/Admin/Auditor wajib kata sandi >= 10 karakter (huruf+angka) lewat Edge Function; peran operasional tetap PIN 6-10 angka. Atur panjang password minimum di Auth ke 6 (PIN) dan biarkan Edge Function yang memperketat.
+
+## Perubahan v2.4.0 (P0 hasil analisis v2.3.2)
+Migrasi `20261030000023`: retur memakai sesi kasir + persetujuan sekali pakai (F-03); retur wajib memilih kembali-stok/rusak-dibuang dan kerugian persediaan masuk laba rugi (F-02/F-01, tabel `inventory_losses`); transaksi offline tertunda diterima dengan tanda `review_flag` dan hapus-antrean butuh persetujuan (F-04); kas keluar laci berkategori dan menjadi biaya (F-05); kategori `kategori_masuk_hpp` tidak dikurangkan lagi dari laba (F-06); `rpc_report_konsolidasi` untuk laporan semua outlet (F-07). Panduan konfigurasi: `docs/GO-LIVE-OUTLET-2.md`. `min_client` = 2.4.0.
+
+## Perubahan v2.5.0 (P1 hasil analisis v2.3.2)
+Migrasi `20261031000024` (min_client 2.5.0). Pengaturan baru (Menu → Pengaturan → Kontrol data): `opname_ambang_nilai` (bawaan 500000, kosong = nonaktif), `transfer_ambang_nilai` (kosong = nonaktif), `bayar_referensi_min` (kosong = referensi opsional). Kunci periode (khusus Owner) lewat `rpc_period_lock_set`; tidak dapat diubah lewat `settings_set`.
+
+| Temuan | Perubahan |
+|---|---|
+| F-08 | Beranda menampilkan peringatan HPP kosong (`peringatan` berupa `{aksi, teks}`); produksi menolak bahan HPP 0 (supervisor/owner dapat melanjutkan dengan `izinkan_bahan_tanpa_harga`); `rpc_hpp_backfill` (pratinjau lalu terapkan; Owner/Admin; ditolak di periode terkunci; diaudit) |
+| F-09 | Laporan Penjualan per produk: diskon dan PPN inklusif dialokasikan proporsional per baris (total = omzet laba rugi, termasuk data lama) |
+| F-10 | `sale_create` menerima `referensi_bayar` (transfer/QRIS); referensi ganda menandai transaksi "perlu ditinjau"; laporan **Pembayaran per metode** |
+| F-11 | Produksi lintas outlet butuh owner/admin/supervisor di outlet tujuan |
+| F-12 | Laporan **Dalam perjalanan**; pemohon tidak boleh menyetujui sendiri transfer di atas `transfer_ambang_nilai` (selisih terima sudah menjadi kerugian sejak P0) |
+| F-13 | Ambang opname bawaan; mengubah HPP yang sudah ada hanya supervisor/owner (saldo awal dan pengisian HPP kosong tetap boleh); laporan **Penyesuaian stok** per pelaku |
+| F-14 | Zona waktu outlet untuk `price_of`, tanggal bawaan laporan/biaya, kas, `bootstrap.server_time`. Laporan lintas outlet memakai Asia/Jakarta untuk tanggal bawaan |
+| F-15 | `client_ts` dipercaya hanya bila klien mengirim `offline: true` (percobaan ulang atau menunggu > 90 dtk); waktu tidak mendahului buka kasir; periode terkunci menolak biaya/impor Shopee dan menggeser transaksi tertunda ke waktu server (ditandai) |
+| F-16 | `rpc_expense_void` (baris pembalik, tidak ada yang dihapus; biaya dari kas laci tidak bisa dibatalkan) dan `rpc_purchase_cancel` (stok dikurangi kembali, HPP dihitung ulang; ditolak bila bahan sudah terpakai) |
+| F-17 | `rpc_cash_approve` terhubung (catatan wajib bila selisih; tidak boleh sesi sendiri), `rpc_shift_list` (nama kasir, sisa laci shift sebelumnya, status tinjauan), laporan **Selisih kas** |
+
+**Belum dikerjakan dari F-10:** status pembayaran `pending/confirmed` masih bawaan `confirmed` (hanya referensi dan laporan rekonsiliasi). Tes SQL baru: `tests/003_p1_kontrol.test.sql` (jalankan lewat `run.sh` di staging).
