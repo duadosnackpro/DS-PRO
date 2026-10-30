@@ -7,6 +7,8 @@ do $$ declare sv uuid := gen_random_uuid(); begin
   insert into public.memberships (user_id, outlet_id, role) values (sv, t.id('o1'), 'supervisor');
   insert into t.ids values ('sv', sv) on conflict (k) do update set v = excluded.v;
   update public.settings set value = 'true' where key = 'wajib_buka_kasir' and outlet_id is null;
+  -- sisa dari 001: penjualan saat wajib_buka_kasir=false membuka sesi otomatis yang belum ditutup; tutup agar rpc_cash_open di bawah tidak bentrok
+  update public.cash_sessions set status = 'closed', closed_at = now() where status = 'open' and auto_opened;
   perform t.login(t.id('owner'));
   perform public.rpc_stock_adjust(jsonb_build_object('outlet_id', t.id('o1'), 'tipe', 'varian', 'id', t.id('v1'), 'stok_baru', 50, 'hpp', 6000, 'alasan', 'isi stok uji P0'));
   perform t.logout();
