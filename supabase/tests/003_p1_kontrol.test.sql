@@ -112,10 +112,10 @@ end $$;
 -- ===== F-16 batalkan pembelian =====
 do $$ declare pu jsonb; q0 numeric; q1 numeric; e text; begin
   perform t.login(t.id('owner'));
-  select coalesce(quantity, 0) into q0 from public.inventory_material_balances where outlet_id = t.id('o1') and material_id = t.id('m1');
+  select coalesce(sum(quantity), 0) into q0 from public.inventory_material_balances where outlet_id = t.id('o1') and material_id = t.id('m1');   -- sum(): tanpa baris saldo hasilnya 0, bukan NULL
   pu := public.rpc_purchase_create(jsonb_build_object('outlet_id', t.id('o1'), 'request_id', 'req-p1-b0001', 'items', jsonb_build_array(jsonb_build_object('material_id', t.id('m1'), 'qty', 5, 'harga_satuan', 2000))));
   perform public.rpc_purchase_cancel(jsonb_build_object('id', pu ->> 'id', 'alasan', 'salah supplier'));
-  select quantity into q1 from public.inventory_material_balances where outlet_id = t.id('o1') and material_id = t.id('m1');
+  select coalesce(sum(quantity), 0) into q1 from public.inventory_material_balances where outlet_id = t.id('o1') and material_id = t.id('m1');
   perform t.ok(q1 = q0, 'stok bahan kembali setelah pembelian dibatalkan');
   e := t.err('rpc_purchase_cancel', jsonb_build_object('id', pu ->> 'id', 'alasan', 'ulang'));
   perform t.ok(e like '%sudah dibatalkan%', 'pembelian tidak dapat dibatalkan dua kali');
