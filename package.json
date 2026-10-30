@@ -10,7 +10,8 @@
     "typecheck": "node tools/typecheck.js",
     "test:release": "node tests/release_check.js",
     "test:fe": "node tests/fe_sb.js",
-    "test": "npm run build:check && npm run test:release && npm run test:fe && npm run test:edge",
+    "test:bt": "node tests/bt_printer.js",
+    "test": "npm run build:check && npm run test:release && npm run test:fe && npm run test:bt && npm run test:edge",
     "check": "npm run lint && npm run typecheck && npm test",
     "test:edge": "node --experimental-strip-types --test supabase/functions/admin-users/authz_test.ts"
   },

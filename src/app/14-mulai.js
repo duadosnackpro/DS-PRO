@@ -22,7 +22,7 @@ function reloadWhenIdle() {
 ACT.reload = () => { if (S.token && S.data && !idleNow()) return toast('Selesaikan dulu layar yang sedang terbuka, lalu tekan Muat ulang lagi'); if (swReg && swReg.waiting) swReg.waiting.postMessage({type: 'SKIP_WAITING'}); else location.reload(); };
 window.addEventListener('online', () => { badge(); flush(); checkUpdates(true); });
 window.addEventListener('offline', badge);
-document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); if (!document.hidden) { checkUpdates(); flush(); if (swReg) swReg.update().catch(() => {}); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); if (!document.hidden) { checkUpdates(); flush(); btWake(); if (swReg) swReg.update().catch(() => {}); } });
 async function start() {
   await Store.init();
   S.token = LS.get('token', null); S.data = LS.get('data', null); S.queue = LS.get('queue', []); S.queue.forEach(q => { const o = q.payload && q.payload.override; if (o && typeof o.diskon === 'string' && o.diskon.indexOf('sbov:') === 0) delete q.payload.override; }); /* P1-4/P1-5: token approver (JWT) dari versi lama tidak boleh tetap tersimpan */ S.ch = LS.get('ch', null); S.cart = LS.get('cart', []); S.metode = LS.get('metode', 'tunai'); S.lastSync = LS.get('lastsync', 0) || null; S.hideOut = !!LS.get('hideOut', false);

@@ -152,42 +152,7 @@ function go(url, blank) { const a = document.createElement('a'); a.href = url; i
 const isAndroid = () => /Android/i.test(navigator.userAgent);
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const BT_SERVICES = ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb', '49535343-fe7d-4ae5-8fa9-9fafd205e455', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '0000ffe0-0000-1000-8000-00805f9b34fb', '0000fee7-0000-1000-8000-00805f9b34fb'];
-const BT = {dev: null, chr: null};
-async function btConnect(pick) { // Web Bluetooth: hanya printer BLE (bukan Bluetooth klasik/SPP)
-  if (!navigator.bluetooth) throw new Error('Browser ini tidak mendukung Web Bluetooth');
-  if (!BT.dev && !pick && navigator.bluetooth.getDevices) { try { const ds = await navigator.bluetooth.getDevices(), n = LS.get('btname', ''); BT.dev = ds.find(d => d.name === n) || null; } catch (e) {} }
-  if (!BT.dev || pick) { BT.dev = await navigator.bluetooth.requestDevice({acceptAllDevices: true, optionalServices: BT_SERVICES}); BT.chr = null; LS.set('btname', BT.dev.name || ''); if (BT.dev.addEventListener) BT.dev.addEventListener('gattserverdisconnected', () => { BT.chr = null; }); }
-  if (!BT.dev.gatt.connected) { BT.chr = null; await BT.dev.gatt.connect(); }
-  if (!BT.chr) {
-    for (const sv of await BT.dev.gatt.getPrimaryServices()) { const w = (await sv.getCharacteristics()).find(c => c.properties.writeWithoutResponse || c.properties.write); if (w) { BT.chr = w; break; } }
-    if (!BT.chr) throw new Error('Printer tidak menyediakan jalur tulis BLE yang dikenali. Pastikan printer BLE, atau pakai RawBT di Android.');
-  }
-  return BT.chr;
-}
-async function btPrint(rc) {
-  const bytes = escpos(rc), chr = await btConnect(false);
-  for (let i = 0; i < bytes.length; i += 100) { const part = bytes.slice(i, i + 100); if (chr.properties.writeWithoutResponse) await chr.writeValueWithoutResponse(part); else await chr.writeValue(part); await sleep(25); }
-}
-function iosHelp() {
-  sheet('<div class="grab"></div><h2>Cetak dari iPhone</h2><p class="muted">Safari dan Chrome di iPhone tidak bisa mengirim data ke printer Bluetooth. Pilihan yang bisa dipakai:</p>' +
-    '<div class="li" style="display:block"><b>1. Browser dengan Web Bluetooth</b><div class="muted">Pasang browser seperti Bluefy, buka alamat aplikasi ini di sana, lalu tekan Cetak Bluetooth. Printer harus tipe <b>BLE</b>; printer Bluetooth klasik (kebanyakan printer murah) tidak dikenali iPhone.</div><button class="btn sec sm" data-act="copyurl">Salin alamat aplikasi</button></div>' +
-    '<div class="li" style="display:block"><b>2. AirPrint atau PDF</b><div class="muted">Tombol Cetak memakai menu cetak iOS (printer AirPrint, atau simpan sebagai PDF).</div><button class="btn sec sm" data-act="print">Cetak</button></div>' +
-    '<div class="li" style="display:block"><b>3. Bagikan struk</b><div class="muted">Kirim ke WhatsApp atau aplikasi printer lain lewat menu bagikan iOS.</div><button class="btn sec sm" data-act="share">Bagikan…</button></div>' +
-    '<div class="li" style="display:block"><b>4. Android + RawBT</b><div class="muted">Untuk printer Bluetooth klasik, gunakan HP Android dengan aplikasi RawBT.</div></div><button class="btn pri" data-act="close">Mengerti</button>');
-}
-async function printBT(rc) {
-  if (!rc) return toast('Tidak ada struk untuk dicetak');
-  const direct = !!LS.get('btdirect', false);
-  if (isAndroid() && !(direct && navigator.bluetooth)) return go('intent:base64,' + b64(escpos(rc)) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;');
-  if (navigator.bluetooth) {
-    try { toast('Mencetak ke printer…'); await btPrint(rc); toast('Struk dikirim ke printer'); }
-    catch (e) { logErr(e, 'btprint'); BT.chr = null; if (e && e.name === 'NotFoundError') toast('Pemilihan printer dibatalkan'); else toast('Gagal mencetak: ' + e.message); }
-    return;
-  }
-  if (isIOS()) return iosHelp();
-  toast('Bluetooth tidak tersedia di browser ini. Memakai cetak browser.'); printBrowser();
-}
+/* Printer Bluetooth (BLE, klasik, RawBT): lihat 045-bt-printer.js */
 const PG = {rule: null};
 function printBrowser() {
   const d = document.querySelector('#rtxt'); if (d && d.closest('details')) d.closest('details').open = true;

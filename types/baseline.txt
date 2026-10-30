@@ -8,13 +8,6 @@ web/js/app.js | TS2339 | Property '_sc' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property '_sc' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'a' does not exist on type '{ qr: string; }'.
 web/js/app.js | TS2339 | Property 'b' does not exist on type '{ qr: string; }'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
-web/js/app.js | TS2339 | Property 'bluetooth' does not exist on type 'Navigator'.
 web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.
 web/js/app.js | TS2339 | Property 'checked' does not exist on type 'Element'.

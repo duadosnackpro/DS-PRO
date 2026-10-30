@@ -338,3 +338,4 @@ pre.rc{background:#fff;border-radius:12px;padding:12px;font:12px/1.35 ui-monospa
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}.loader,.sk,.badge.spin::before,#bar::before{animation-duration:2.4s!important;animation-iteration-count:infinite!important}}
 
 .linkbtn{background:none;border:0;color:inherit;font:inherit;font-size:12px;text-decoration:underline;min-height:44px;padding:0 8px;cursor:pointer}
+.btbox:empty{display:none}.btbox{margin-bottom:var(--s2)}.btbox .badge{margin-bottom:var(--s2)}.btbox .seg{margin-bottom:var(--s2)}
