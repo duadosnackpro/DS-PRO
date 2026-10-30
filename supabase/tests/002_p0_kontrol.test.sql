@@ -72,10 +72,14 @@ do $$ declare s jsonb; r jsonb; sid uuid; q0 numeric; q1 numeric; lr jsonb; begi
 end $$;
 
 -- ===== P0-2 opname minus + selisih transfer masuk kerugian =====
-do $$ declare tr jsonb; tid uuid; n int; begin
+do $$ declare tr jsonb; tid uuid; n int; l0 numeric; l1 numeric; begin
   perform t.login(t.id('owner'));
+  -- stok awal dibuat pasti 50 (di atas 40) agar opname ke 40 selalu minus; yang diukur hanya selisih kerugian dari opname ini
+  perform public.rpc_stock_adjust(jsonb_build_object('outlet_id', t.id('o1'), 'tipe', 'varian', 'id', t.id('v1'), 'stok_baru', 50, 'hpp', 6000, 'alasan', 'siapkan stok opname uji'));
+  select coalesce(sum(value), 0) into l0 from public.inventory_losses where reason = 'opname' and outlet_id = t.id('o1') and item_id = t.id('v1');
   perform public.rpc_stock_adjust(jsonb_build_object('outlet_id', t.id('o1'), 'tipe', 'varian', 'id', t.id('v1'), 'stok_baru', 40, 'alasan', 'opname uji'));
-  perform t.ok((select coalesce(sum(value), 0) from public.inventory_losses where reason = 'opname') > 0, 'opname minus tercatat sebagai kerugian');
+  select coalesce(sum(value), 0) into l1 from public.inventory_losses where reason = 'opname' and outlet_id = t.id('o1') and item_id = t.id('v1');
+  perform t.ok(l1 - l0 > 0, 'opname minus tercatat sebagai kerugian (selisih ' || (l1 - l0)::text || ')');
   tr := public.rpc_transfer_create(jsonb_build_object('request_id', 'req-p0-t0001', 'from_outlet_id', t.id('o1'), 'to_outlet_id', t.id('o2'),
         'items', jsonb_build_array(jsonb_build_object('item_type', 'variant', 'item_id', t.id('v1'), 'qty', 10))));
   tid := (tr ->> 'id')::uuid;
