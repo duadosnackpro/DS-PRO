@@ -209,6 +209,8 @@ do $$ declare po jsonb; e text; r jsonb; begin
   po := public.rpc_production_create(jsonb_build_object('kitchen_outlet_id', t.id('kit'), 'output_outlet_id', t.id('kit'),
         'recipe_id', (select id from public.recipes limit 1), 'jumlah_batch', 2));
   e := t.err('rpc_production_complete', jsonb_build_object('id', po ->> 'id', 'qty_hasil', 20));
+  perform t.ok(e like '%belum punya harga%', 'bahan tanpa harga => produksi ditolak (P1 F-08): ' || coalesce(e, 'NULL'));
+  e := t.err('rpc_production_complete', jsonb_build_object('id', po ->> 'id', 'qty_hasil', 20, 'izinkan_bahan_tanpa_harga', true));
   perform t.ok(e like '%tidak cukup%', 'bahan kurang => produksi gagal: ' || coalesce(e, 'NULL'));
   perform t.ok((select status from public.production_orders where id = (po ->> 'id')::uuid) = 'planned', 'status tetap planned');
   perform t.ok(not exists (select 1 from public.stock_movements where reference_type = 'production'), 'tidak ada mutasi parsial');

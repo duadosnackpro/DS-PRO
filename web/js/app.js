@@ -76,6 +76,9 @@ const CAPS = {manage: ['owner', 'admin'], users: ['owner', 'admin'], takeover: [
 const ASSIGNABLE = {owner: ROLES.map(r => r[0]), admin: ['supervisor', 'kasir', 'stok', 'produksi']};   // sama dengan aturan Edge Function admin-users dan rpc_membership_set
 const can = (cap, role) => { const r = role || (S.data && S.data.user && S.data.user.role); return !!r && (CAPS[cap] || []).indexOf(r) >= 0; };
 const own = () => can('manage');
+/* Pembantu bertipe longgar (hindari galat tipe DOM baru di ratchet): nilai input berdasarkan id, dan dataset elemen. */
+const vOf = id => { const e = /** @type {any} */ (document.getElementById(id)); return e ? String(e.value || '') : ''; };
+const dsOf = el => /** @type {any} */ (el).dataset;
 const TAB_CAP = {dash: 'dash', kasir: 'sell', tutup: 'sell', riwayat: 'history', produksi: 'produce', laporan: 'report', transfer: 'transfer'};
 const OWN_TABS = ['master', 'users', 'settings', 'resep', 'shopee', 'cek', 'outlets'];
 const tabAllowed = t => OWN_TABS.indexOf(t) >= 0 ? own() : TAB_CAP[t] ? can(TAB_CAP[t]) : true;
@@ -1481,10 +1484,10 @@ const ACT = {
   pbopen: pbSheet, pbdel: el => { S.pb.items.splice(el.dataset.i, 1); pbSheet(); }, pbsave: pbSave,
   pbadd: () => { const q = dnum($('#pb_q').value), h = dnum($('#pb_h').value), id = $('#pb_m').value; if (!id || !(q > 0) || !(h >= 0) || $('#pb_h').value === '') return toast('Isi jumlah dan harga'); S.pb.items.push({id: id, qty: q, harga: h}); pbSheet(); },
   go_master: () => { S.tab = 'master'; render(); }, go_riwayat: () => { S.tab = 'riwayat'; render(); }, go_laporan: () => { S.tab = 'laporan'; render(); }, go_shopee: () => { S.tab = 'shopee'; render(); }, go_resep: () => { S.tab = 'resep'; render(); }, go_cek: () => { S.tab = 'cek'; render(); }, go_users: () => { S.tab = 'users'; render(); }, go_settings: () => { S.tab = 'settings'; render(); },
-  expvoid: el => { const why = (($('#xv_r') || {}).value || '').trim(); if (why.length < 3) return toast('Alasan pembatalan wajib diisi');
-    return busy('Membatalkan…', async () => { try { await api('expense.void', {id: el.dataset.id, alasan: why}); S.expLoaded = false; closeSheet(); loadExp(); toast('Biaya dibatalkan'); } catch (e) { toast(e.message); } }); },
-  pbhist: () => pbHist(), pbcancel: el => pbCancel(el.dataset.id), shapp: el => shiftApprove(el.dataset.id, el.dataset.d),
-  plock: () => { const d = ($('#pl_d') || {}).value || '', r = (($('#pl_r') || {}).value || '').trim(); if (r.length < 3) return toast('Alasan wajib diisi');
+  expvoid: el => { const why = vOf('xv_r').trim(); if (why.length < 3) return toast('Alasan pembatalan wajib diisi');
+    return busy('Membatalkan…', async () => { try { await api('expense.void', {id: dsOf(el).id, alasan: why}); S.expLoaded = false; closeSheet(); loadExp(); toast('Biaya dibatalkan'); } catch (e) { toast(e.message); } }); },
+  pbhist: () => pbHist(), pbcancel: el => pbCancel(dsOf(el).id), shapp: el => shiftApprove(dsOf(el).id, dsOf(el).d),
+  plock: () => { const d = vOf('pl_d'), r = vOf('pl_r').trim(); if (r.length < 3) return toast('Alasan wajib diisi');
     if (!confirm(d ? 'Kunci semua periode sampai ' + d + '? Biaya/impor pada tanggal itu dan sebelumnya akan ditolak.' : 'Buka semua kunci periode?')) return;
     return busy('Menyimpan…', async () => { try { await api('period.lock', {sampai: d, alasan: r}); await loadData(); render(); toast('Kunci periode disimpan'); } catch (e) { toast(e.message); } }); },
   mt: el => { S.mt = el.dataset.k; vMaster(); }, medit: el => meditSheet(el.dataset.id), msave: el => mSave(el.dataset.id), mdel: el => mDel(el.dataset.id),
