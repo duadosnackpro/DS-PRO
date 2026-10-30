@@ -468,9 +468,16 @@ do $$
 declare e text; o1 uuid := t.id('o1');
 begin
   perform t.login(t.id('kc'));
+  -- P0-3: kasir tidak boleh menghapus transaksi antrean tanpa persetujuan; menandai 'tinjau' tetap boleh
+  e := t.err('rpc_sale_reject_log', jsonb_build_object('outlet_id', o1, 'request_id', 'req-t20-0001', 'alasan', 'ditolak server: stok kurang', 'total', 20000, 'aksi', 'hapus'));
+  perform t.ok(e like '42501%', 'kasir tanpa persetujuan tidak bisa mencatat hapus antrean: ' || coalesce(e, 'berhasil'));
+  perform public.rpc_sale_reject_log(jsonb_build_object('outlet_id', o1, 'request_id', 'req-t20-0003', 'alasan', 'ditolak server: stok kurang', 'total', 20000, 'aksi', 'tinjau'));
+  perform t.logout();
+  perform t.ok(exists (select 1 from public.audit_logs where action = 'sale_queue_tinjau' and entity_id = 'req-t20-0003' and actor_id = t.id('kc')), 'tinjau antrean oleh kasir tercatat di audit_logs dengan pelaku');
+  perform t.login(t.id('owner'));
   perform public.rpc_sale_reject_log(jsonb_build_object('outlet_id', o1, 'request_id', 'req-t20-0001', 'alasan', 'ditolak server: stok kurang', 'total', 20000, 'aksi', 'hapus'));
   perform t.logout();
-  perform t.ok(exists (select 1 from public.audit_logs where action = 'sale_queue_hapus' and entity_id = 'req-t20-0001' and actor_id = t.id('kc')), 'pembuangan transaksi antrean tercatat di audit_logs dengan pelaku');
+  perform t.ok(exists (select 1 from public.audit_logs where action = 'sale_queue_hapus' and entity_id = 'req-t20-0001' and actor_id = t.id('owner')), 'pembuangan transaksi antrean oleh owner tercatat di audit_logs dengan pelaku');
   perform t.login(t.id('kb'));
   e := t.err('rpc_sale_reject_log', jsonb_build_object('outlet_id', o1, 'request_id', 'req-t20-0002', 'alasan', 'x'));
   perform t.ok(e like '42501%', 'kasir outlet lain tidak boleh mencatat di outlet ini: ' || coalesce(e, 'berhasil'));

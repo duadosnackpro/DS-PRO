@@ -1396,7 +1396,7 @@ async function returOpen(id) {
 async function returGo() {
   const R = S.ret; if (!R) return; const items = [], err = m => { const e = $('#rerr'); if (e) e.textContent = m; };
   let missing = false;
-  document.querySelectorAll('#sheet [data-rv]').forEach(e => { const q = Number(e.value) || 0, l = R.lines.find(x => x.variant_id === e.dataset.rv); if (q > 0 && l) { const sel = document.querySelector('#sheet [data-rs="' + e.dataset.rv + '"]'), rs = sel ? sel.value : ''; if (rs !== 'ya' && rs !== 'tidak') missing = true; items.push({variant_id: l.variant_id, qty: q, max: l.sisa, harga: Number(l.harga) || 0, restock: rs === 'ya'}); } });
+  document.querySelectorAll('#sheet [data-rv]').forEach(e => { const q = Number(/** @type {any} */ (e).value) || 0, l = R.lines.find(x => x.variant_id === dsOf(e).rv); if (q > 0 && l) { const sel = /** @type {any} */ (document.querySelector('#sheet [data-rs="' + dsOf(e).rv + '"]')), rs = sel ? sel.value : ''; if (rs !== 'ya' && rs !== 'tidak') missing = true; items.push({variant_id: l.variant_id, qty: q, max: l.sisa, harga: Number(l.harga) || 0, restock: rs === 'ya'}); } });
   if (!items.length) return err('Isi jumlah retur minimal satu item.'); if (items.some(x => x.qty > x.max + 1e-9)) return err('Jumlah melebihi sisa yang bisa diretur.');
   if (missing) return err('Pilih kondisi barang (kembali ke stok atau rusak/dibuang) untuk setiap item yang diretur.');
   const alasan = (($('#ral') || {}).value || '').trim(); if (alasan.length < 3) return err('Alasan retur wajib diisi.');
