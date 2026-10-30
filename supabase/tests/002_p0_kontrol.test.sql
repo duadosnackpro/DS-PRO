@@ -102,7 +102,7 @@ do $$ declare r jsonb; e text; rid text; begin
   perform t.ok(e like '%Total struk%', 'online + total beda tetap ditolak: ' || coalesce(e, 'NULL'));
   -- tertunda 1 jam: diterima, ditandai, dicatat dengan harga server
   r := public.rpc_sale_create(jsonb_build_object('outlet_id', t.id('o1'), 'request_id', 'req-p0-s0011', 'channel_id', t.id('ch'), 'metode_bayar', 'tunai', 'total_klien', 9000,
-        'client_ts', (extract(epoch from now() - interval '1 hour') * 1000)::bigint,
+        'offline', true, 'client_ts', (extract(epoch from now() - interval '1 hour') * 1000)::bigint,   -- F-15 (P1): waktu perangkat hanya dipercaya bila ditandai tertunda
         'items', jsonb_build_array(jsonb_build_object('variant_id', t.id('v1'), 'qty', 1))));
   perform t.ok((r -> 'sale' ->> 'total')::numeric = 10000 and (r ->> 'review')::boolean, 'tertunda: dicatat harga server + review');
   perform t.ok((select review_flag and client_total = 9000 from public.sales where request_id = 'req-p0-s0011'), 'flag dan client_total tersimpan');

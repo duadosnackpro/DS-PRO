@@ -28,6 +28,16 @@ do $$ declare e text; rid uuid; begin
   perform t.logout();
 end $$;
 
+-- ===== Normalisasi stok untuk tes berikutnya =====
+-- 002 sengaja membuat stok v1 di o1 minus (uji "stok kurang diterima"); block_negative_stock bawaan = true, jadi penjualan v1 di bawah akan ditolak
+-- dan penyesuaian oleh peran 'stok' kena ambang nilai opname. Owner memulihkan stok ke angka wajar (v1 = 50 persis, agar selisih ks di F-13 nol).
+do $$ begin
+  perform t.login(t.id('owner'));
+  perform public.rpc_stock_adjust(jsonb_build_object('outlet_id', t.id('o1'), 'tipe', 'varian', 'id', t.id('v1'), 'stok_baru', 50, 'hpp', 6000, 'alasan', 'pulihkan stok uji P1'));
+  perform public.rpc_stock_adjust(jsonb_build_object('outlet_id', t.id('o1'), 'tipe', 'varian', 'id', t.id('v2'), 'stok_baru', 100, 'hpp', 5000, 'alasan', 'pulihkan stok uji P1'));
+  perform t.logout();
+end $$;
+
 -- ===== F-13 mengubah HPP yang sudah ada perlu supervisor =====
 do $$ declare e text; begin
   perform t.login(t.id('ks'));
