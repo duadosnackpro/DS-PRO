@@ -79,7 +79,7 @@ const own = () => can('manage');
 /* Pembantu bertipe longgar (hindari galat tipe DOM baru di ratchet): nilai input berdasarkan id, dan dataset elemen. */
 const vOf = id => { const e = /** @type {any} */ (document.getElementById(id)); return e ? String(e.value || '') : ''; };
 const dsOf = el => /** @type {any} */ (el).dataset;
-const TAB_CAP = {dash: 'dash', kasir: 'sell', tutup: 'sell', riwayat: 'history', produksi: 'produce', laporan: 'report', transfer: 'transfer'};
+const TAB_CAP = {reset: 'takeover', dash: 'dash', kasir: 'sell', tutup: 'sell', riwayat: 'history', produksi: 'produce', laporan: 'report', transfer: 'transfer'};
 const OWN_TABS = ['master', 'users', 'settings', 'resep', 'shopee', 'cek', 'outlets'];
 const tabAllowed = t => OWN_TABS.indexOf(t) >= 0 ? own() : TAB_CAP[t] ? can(TAB_CAP[t]) : true;
 const homeTab = () => ['dash', 'kasir', 'riwayat', 'stok'].filter(tabAllowed)[0] || 'menu';

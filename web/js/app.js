@@ -79,7 +79,7 @@ const own = () => can('manage');
 /* Pembantu bertipe longgar (hindari galat tipe DOM baru di ratchet): nilai input berdasarkan id, dan dataset elemen. */
 const vOf = id => { const e = /** @type {any} */ (document.getElementById(id)); return e ? String(e.value || '') : ''; };
 const dsOf = el => /** @type {any} */ (el).dataset;
-const TAB_CAP = {dash: 'dash', kasir: 'sell', tutup: 'sell', riwayat: 'history', produksi: 'produce', laporan: 'report', transfer: 'transfer'};
+const TAB_CAP = {reset: 'takeover', dash: 'dash', kasir: 'sell', tutup: 'sell', riwayat: 'history', produksi: 'produce', laporan: 'report', transfer: 'transfer'};
 const OWN_TABS = ['master', 'users', 'settings', 'resep', 'shopee', 'cek', 'outlets'];
 const tabAllowed = t => OWN_TABS.indexOf(t) >= 0 ? own() : TAB_CAP[t] ? can(TAB_CAP[t]) : true;
 const homeTab = () => ['dash', 'kasir', 'riwayat', 'stok'].filter(tabAllowed)[0] || 'menu';
@@ -291,7 +291,7 @@ const IC = {
   sync: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
   diag: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
-  chev: '<path d="m9 18 6-6-6-6"/>', search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', check: '<path d="M20 6 9 17l-5-5"/>'
+  chev: '<path d="m9 18 6-6-6-6"/>', trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/>', search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', check: '<path d="M20 6 9 17l-5-5"/>'
 };
 const svg = (n, sz) => '<svg class="ic" viewBox="0 0 24 24" width="' + (sz || 22) + '" height="' + (sz || 22) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + IC[n] + '</svg>';
 const FLAME = 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z';
@@ -1410,14 +1410,15 @@ function confirmLogout() {
 function vMenu() {
   const u = S.data.user, o = own(), nIssue = o && APP.issueCount ? APP.issueCount() : 0;
   const mi = (a, ic, t, sub, cl, bd) => '<button class="mi ' + (cl || '') + '" data-act="' + a + '"><span class="mi-i">' + svg(ic, 20) + '</span><span class="mi-t"><b>' + t + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span>' + (bd ? '<span class="mi-b" aria-label="' + bd + ' masalah">' + bd + '</span>' : '') + svg('chev', 18) + '</button>';
-  const inst = S.installEv && !standalone() ? '<div class="grp">' + mi('install', 'install', 'Pasang Aplikasi', 'Tambahkan ke layar utama agar terbuka seperti aplikasi') + '</div>' :
-    (isIOS() && !standalone() ? '<div class="li" style="display:block"><b>Pasang di layar utama</b><div class="muted">Di Safari, ketuk tombol Bagikan lalu pilih "Tambah ke Layar Utama".</div></div>' : '');
-  $('#main').innerHTML = '<div class="profile"><div class="av">' + esc(String(u.nama || '?').charAt(0).toUpperCase()) + '</div><div class="pi"><b>' + esc(u.nama) + '</b><div class="muted">' + esc(u.role) + ' · versi ' + esc(C.VERSION || '') + '</div></div><span class="badge ' + (navigator.onLine ? 'ok' : 'off') + '">' + (navigator.onLine ? 'Online' : 'Offline') + '</span></div>' +
-    '<p class="muted note">Data terakhir diperbarui: ' + (S.lastSync ? fmtDT(S.lastSync).slice(11) : 'dari cache perangkat') + '. Aplikasi hanya memuat ulang jika ada data baru.</p>' + inst +
-    ((o || can('report') || can('transfer') || can('sell') || can('history')) ? '<div class="grp"><h3>Operasional</h3>' + (o || (can('history') && !can('sell')) ? mi('go_riwayat', 'riwayat', 'Riwayat penjualan', 'Transaksi per tanggal') : '') + (can('report') ? mi('go_laporan', 'laporan', 'Laporan', can('cost') ? 'Laba rugi, penjualan, HPP, stok' : 'Penjualan, stok, produksi, pembelian') : '') + (can('transfer') ? mi('go_transfer', 'master', 'Transfer stok', 'Kirim dan terima stok antar outlet') : '') + (can('sell') ? mi('go_tutup', 'riwayat', 'Buka dan tutup kasir', 'Modal awal, kas masuk/keluar, hitung uang laci') : '') + (o ? mi('go_cek', 'cek', 'Pemeriksaan data', nIssue ? nIssue + ' hal perlu diperbaiki' : 'Kelengkapan data dan kesesuaian stok', '', nIssue) : '') + '</div>' : '') + (o ?
-      '<div class="grp"><h3>Data</h3>' + mi('go_master', 'master', 'Data Master', 'Produk, varian, harga, bahan, resep, biaya') + mi('go_shopee', 'shopee', 'Impor pesanan Shopee', 'Dari file CSV') + mi('go_users', 'users', 'Pengguna', 'Owner dan kasir') + (S.data.outlets ? mi('go_outlets', 'master', 'Outlet', 'Tambah outlet, atur status dan pengguna') : '') + mi('go_settings', 'settings', 'Pengaturan', 'Usaha, PPN, stok, printer, HPP') + '</div>' : '') +
-    '<div class="grp"><h3>Sistem</h3>' + mi('sync', 'sync', 'Perbarui data', own() ? 'Muat ulang semua dari spreadsheet dan kirim antrean' : 'Cek data baru dan kirim antrean') + mi('go_diag', 'diag', 'Diagnostik dan uji cetak', 'Cek koneksi, WhatsApp, dan printer') + '</div>' +
-    '<div class="grp grp-out">' + mi('logout', 'out', 'Keluar', 'Keluar dari akun ini', 'danger') + '</div>';
+  const inst = S.installEv && !standalone() ? '<div class="grp">' + mi('install', 'install', 'Pasang di layar utama', 'Buka lebih cepat, tanpa lewat browser') + '</div>' :
+    (isIOS() && !standalone() ? '<div class="li" style="display:block"><b>Pasang di layar utama</b><div class="muted">Di Safari, ketuk Bagikan, lalu pilih "Tambah ke Layar Utama".</div></div>' : '');
+  $('#main').innerHTML = '<div class="profile"><div class="av">' + esc(String(u.nama || '?').charAt(0).toUpperCase()) + '</div><div class="pi"><b>' + esc(u.nama) + '</b><div class="muted">' + esc(roleName(u.role)) + ' · versi ' + esc(C.VERSION || '') + '</div></div><span class="badge ' + (navigator.onLine ? 'ok' : 'off') + '">' + (navigator.onLine ? 'Online' : 'Offline') + '</span></div>' +
+    '<p class="muted note">' + (S.lastSync ? 'Data diperbarui terakhir pukul ' + fmtDT(S.lastSync).slice(11) + '.' : 'Data masih dari penyimpanan perangkat.') + '</p>' + inst +
+    ((o || can('report') || can('transfer') || can('sell') || can('history')) ? '<div class="grp"><h3>Operasional</h3>' + (o || (can('history') && !can('sell')) ? mi('go_riwayat', 'riwayat', 'Riwayat penjualan', 'Daftar transaksi per tanggal') : '') + (can('report') ? mi('go_laporan', 'laporan', 'Laporan', can('cost') ? 'Laba rugi, penjualan, HPP, stok' : 'Penjualan, stok, produksi, pembelian') : '') + (can('transfer') ? mi('go_transfer', 'master', 'Transfer stok', 'Kirim dan terima stok antar outlet') : '') + (can('sell') ? mi('go_tutup', 'riwayat', 'Buka dan tutup kasir', 'Modal awal, kas masuk dan keluar, hitung uang di laci') : '') + (o ? mi('go_cek', 'cek', 'Pemeriksaan data', nIssue ? nIssue + ' hal perlu dibereskan' : 'Tidak ada yang perlu dibereskan', '', nIssue) : '') + '</div>' : '') + (o ?
+      '<div class="grp"><h3>Data</h3>' + mi('go_master', 'master', 'Data Master', 'Produk, varian, harga, bahan, resep, biaya') + mi('go_shopee', 'shopee', 'Impor pesanan Shopee', 'Unggah file CSV dari Shopee') + mi('go_users', 'users', 'Pengguna', 'Akun dan hak akses') + (S.data.outlets ? mi('go_outlets', 'master', 'Outlet', 'Tambah outlet dan atur statusnya') : '') + mi('go_settings', 'settings', 'Pengaturan', 'Usaha, PPN, stok, printer, HPP') + '</div>' : '') +
+    '<div class="grp"><h3>Sistem</h3>' + mi('sync', 'sync', 'Perbarui data', own() ? 'Ambil data terbaru dan kirim transaksi yang menunggu' : 'Cek data baru dan kirim transaksi yang menunggu') + mi('go_diag', 'diag', 'Diagnostik dan tes cetak', 'Tes koneksi, printer, dan WhatsApp') + '</div>' +
+    (can('takeover') ? '<div class="grp"><h3>Hati-hati</h3>' + mi('go_reset', 'trash', 'Reset data transaksi', 'Hapus penjualan, kas, dan riwayat stok outlet ' + esc(S.data.outlet ? S.data.outlet.code : 'ini'), 'danger') + '</div>' : '') +
+    '<div class="grp grp-out">' + mi('logout', 'out', 'Keluar', esc(u.nama), 'danger') + '</div>';
 }
 function vDiag() {
   setTimeout(() => { // bandingkan versi config.js dengan versi cache sw.js: beda = unggahan web/ tidak lengkap, sehingga banner pembaruan tidak akan muncul
@@ -1901,6 +1902,81 @@ Object.assign(ACT, {
   trdel: el => { S.trf.items.splice(Number(el.dataset.i), 1); trNewDraw(); }, trsave: el => trSave(el.dataset.aj === '1'),
   kopen: kasOpen, kmove: kasMove,
 });
+/* ---------- Reset data transaksi (v2.5.1): khusus Owner, hanya untuk outlet yang sedang aktif. Aksi sebenarnya dijaga di server (rpc_data_reset). ---------- */
+const RS = {pre: null, err: ''};   // pre = hasil pratinjau dari server; err = alasan pratinjau gagal
+const rsBack = '<button class="chip" data-act="tab" data-t="menu" style="align-self:flex-start;margin-bottom:var(--s3)">← Menu</button>';
+function rsRows(n) {
+  const row = (l, v) => '<div class="kv rs-r' + (v ? '' : ' rs-0') + '"><span>' + l + '</span><span>' + (v || 'Tidak ada') + '</span></div>';
+  const c = k => Number(n[k]) || 0;
+  return row('Penjualan', c('penjualan') ? num(c('penjualan')) + ' transaksi, ' + rp(n.total_rp) : '') +
+    row('Sesi kasir dan kas masuk/keluar', c('sesi_kas') || c('mutasi_kas') ? num(c('sesi_kas')) + ' sesi, ' + num(c('mutasi_kas')) + ' catatan kas' : '') +
+    row('Biaya outlet', c('biaya') ? num(c('biaya')) + ' catatan' : '') +
+    row('Pembelian bahan', c('pembelian') ? num(c('pembelian')) + ' nota' : '') +
+    row('Produksi', c('produksi') ? num(c('produksi')) + ' batch' : '') +
+    row('Transfer stok', c('transfer') ? num(c('transfer')) + ' dokumen' : '') +
+    row('Impor Shopee', c('impor') ? num(c('impor')) + ' pesanan' : '') +
+    row('Riwayat stok dan kerugian', c('mutasi_stok') || c('kerugian') ? num(c('mutasi_stok') + c('kerugian')) + ' catatan' : '');
+}
+function rsCheck() {   // tombol hapus hanya aktif bila semua syarat terpenuhi
+  const go = /** @type {HTMLButtonElement|null} */ (document.getElementById('rs_go')), o = S.data && S.data.outlet; if (!go || !o) return;
+  const ok = !!RS.pre && !RS.pre.blokir && !S.queue.length && vOf('rs_why').trim().length >= 3 && vOf('rs_code').trim().toUpperCase() === String(o.code).toUpperCase();
+  go.disabled = !ok;
+}
+function vReset() {
+  const o = S.data.outlet; RS.pre = null; RS.err = '';
+  if (!o) { $('#main').innerHTML = rsBack + emptyState('cek', 'Belum ada outlet aktif', 'Pilih outlet dulu, lalu buka layar ini lagi.'); return; }
+  const q = S.queue.length;
+  $('#main').innerHTML = rsBack +
+    '<div class="qwarn" role="alert"><b>Data transaksi ' + esc(o.name) + ' (' + esc(o.code) + ') akan dihapus permanen.</b><br>Tidak bisa dikembalikan. Outlet lain tidak ikut terhapus.</div>' +
+    (q ? '<div class="notice"><span>Masih ada ' + q + ' transaksi di perangkat ini yang belum terkirim. Kirim dulu lewat Menu, Perbarui data, supaya tidak masuk lagi setelah reset.</span></div>' : '') +
+    '<section class="set-card"><h3>Yang dihapus</h3><div id="rs_sum" class="muted">Menghitung…</div></section>' +
+    '<section class="set-card"><h3>Yang tetap ada</h3><p class="muted" style="margin:0">Produk, harga, bahan, resep, supplier, pengguna, dan pengaturan. Catatan audit juga tetap, dan reset ini dicatat di sana.</p></section>' +
+    '<section class="set-card"><h3>Stok setelah reset</h3>' +
+      '<label class="rs-opt"><input type="radio" name="rs_stok" value="nol" checked><span><b>Kosongkan stok</b><small>Semua stok dan HPP kembali ke 0. Isi stok awal lewat Stok, Penyesuaian.</small></span></label>' +
+      '<label class="rs-opt"><input type="radio" name="rs_stok" value="pertahankan"><span><b>Pertahankan stok sekarang</b><small>Jumlah dan HPP tidak berubah, dicatat sebagai stok awal. Pilih ini bila stok sudah dihitung benar.</small></span></label>' +
+    '</section>' +
+    '<section class="set-card"><h3>Konfirmasi</h3>' +
+      '<label>Alasan reset<input class="inp" id="rs_why" maxlength="300" autocomplete="off" placeholder="Mis. membersihkan data uji sebelum buka"></label>' +
+      '<label>Ketik <b>' + esc(o.code) + '</b> untuk melanjutkan<input class="inp" id="rs_code" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>' +
+      '<button class="btn dan big" id="rs_go" data-act="rs_go" disabled>Hapus data transaksi</button>' +
+      '<p class="muted" id="rs_hint" style="margin:var(--s3) 0 0">Pastikan tidak ada kasir yang sedang berjualan di outlet ini.</p>' +
+    '</section>';
+  api('data.reset', {terapkan: false}, {silent: true}).then(r => {
+    if (S.tab !== 'reset' || !$('#rs_sum')) return;
+    RS.pre = r; $('#rs_sum').className = ''; $('#rs_sum').innerHTML = rsRows(r.jumlah || {});
+    if (r.blokir) { const h = $('#rs_hint'); if (h) { h.className = 'err'; h.textContent = r.blokir; } }
+    rsCheck();
+  }).catch(e => {
+    if (S.tab !== 'reset' || !$('#rs_sum')) return;
+    RS.err = e.auth ? 'Sesi berakhir, silakan masuk lagi.' : /Hanya Owner/.test(e.message) ? e.message : navigator.onLine ? e.message : 'Perlu koneksi internet untuk menghitung data yang akan dihapus.';
+    $('#rs_sum').className = 'err'; $('#rs_sum').textContent = RS.err;
+  });
+}
+function rsDone(r, stok) {
+  const n = r.jumlah || {}, c = k => Number(n[k]) || 0;
+  sheet('<div class="grab"></div><div class="okmark">' + svg('check', 30) + '</div><h2 style="text-align:center">Data transaksi sudah direset</h2>' +
+    '<p class="muted" style="text-align:center">' + esc(r.outlet ? r.outlet.kode + ' · ' + r.outlet.nama : '') + '. ' + num(c('penjualan')) + ' transaksi penjualan dan ' + num(c('mutasi_stok')) + ' catatan stok dihapus.</p>' +
+    '<div class="card-s"><b>Sebelum buka:</b><ul style="margin:var(--s2) 0 0;padding-left:20px">' +
+      (stok === 'nol' ? '<li>Isi stok awal lewat Stok, Penyesuaian.</li>' : '<li>Cek lagi jumlah stok bila perlu.</li>') +
+      '<li>Buka kasir dan isi modal awal.</li><li>Nomor struk mulai dari 1 lagi.</li></ul></div>' +
+    '<div class="row2"><button class="btn pri" data-act="rs_stok">Ke Stok</button><button class="btn sec" data-act="close">Tutup</button></div>');
+}
+async function rsGo() {
+  const o = S.data.outlet, go = /** @type {HTMLButtonElement|null} */ (document.getElementById('rs_go')); if (!o || !go || go.disabled) return;
+  const stokEl = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="rs_stok"]:checked')), stok = stokEl ? stokEl.value : 'nol';
+  if (!navigator.onLine) return toast('Perlu koneksi internet untuk reset data');
+  return busy('Menghapus data transaksi…', async () => {
+    try {
+      const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'rst-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      const r = await api('data.reset', {terapkan: true, konfirmasi: vOf('rs_code').trim(), alasan: vOf('rs_why').trim(), stok: stok, request_id: rid});
+      S.cart = []; LS.set('cart', []); S.rhist = null; VC = {}; S.expLoaded = false;
+      await loadData(); await shiftCheck(); S.tab = 'menu'; render(); rsDone(r, stok);
+    } catch (e) { toast(e.auth ? 'Sesi berakhir, silakan masuk lagi' : e.message); }
+  });
+}
+document.addEventListener('input', e => { const t = /** @type {HTMLElement} */ (e.target); if (S.tab === 'reset' && t && (t.id === 'rs_why' || t.id === 'rs_code')) rsCheck(); });
+MENU_TABS.push('reset'); APP.views.reset = vReset;
+Object.assign(ACT, {go_reset: () => { S.tab = 'reset'; render(); }, rs_go: rsGo, rs_stok: () => { closeSheet(); S.tab = 'stok'; render(); }});
 /* ---------- Mulai ---------- */
 let swReg = null;
 function updBanner() { const b = $('#upd'); b.hidden = false; b.innerHTML = 'Versi baru tersedia <button data-act="reload">Muat ulang</button>'; }

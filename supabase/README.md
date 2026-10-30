@@ -1,4 +1,4 @@
-# DUADO POS — backend Supabase (v2.5.0, multi-outlet)
+# DUADO POS — backend Supabase (v2.5.1, multi-outlet)
 
 Implementasi PRD "v2.0.0 → Multi-Outlet Ready", Fase 1–2 (+ pondasi Fase 4–5). Satu database melayani semua outlet; isolasi ditegakkan di database.
 
@@ -78,7 +78,7 @@ Jangan arahkan ke database berisi data. Tes memakai `rpc_*` sebagai pengguna `au
 | `stock.audit` | `rpc_stock_reconcile` + nama item dari `bootstrap` |
 | `stock.reconcile` | sengaja ditolak: saldo selalu ditulis bersama ledger, jadi koreksi dilakukan lewat opname agar tercatat |
 
-Aksi yang memang masih stub (jangan dianggap fitur): `sku.auto` (tidak dipanggil UI; SKU otomatis dibuat di klien), `archive.*`, `data.reset`, dan laporan jenis `hpp`. Aksi yang sebelumnya tercatat "belum dipetakan" kini dilayani adapter: `setting.logo`, `produk.foto`, `addon.create`, `overhead.saran`, `shopee.import`; tambahan v2.3.2: `sale.lookup`, `override.grant` jenis `diskon`, `master.remove` (hapus sungguhan untuk harga channel).
+Aksi yang memang masih stub (jangan dianggap fitur): `sku.auto` (tidak dipanggil UI; SKU otomatis dibuat di klien), `archive.*`, dan laporan jenis `hpp`. Aksi yang sebelumnya tercatat "belum dipetakan" kini dilayani adapter: `setting.logo`, `produk.foto`, `addon.create`, `overhead.saran`, `shopee.import`; tambahan v2.3.2: `sale.lookup`, `override.grant` jenis `diskon`, `master.remove` (hapus sungguhan untuk harga channel).
 
 ## Operasi (v2.4.0)
 **Retensi (P1-1).** `app.purge_idempotency(30)` menghapus `idempotency_keys` dan `approvals` lebih tua dari 30 hari (jendela transaksi offline hanya 72 jam). Dijadwalkan `pg_cron` 03:15 harian bila ekstensi tersedia; di Supabase aktifkan *Database → Extensions → pg_cron* lalu cek `select * from cron.job`. Tanpa `pg_cron`, jalankan fungsinya manual/terjadwal dari luar. `audit_logs` dan `stock_movements` sengaja tidak dipurge (jejak keuangan); pantau ukurannya: `select relname, pg_size_pretty(pg_total_relation_size(oid)) from pg_class where relname in ('audit_logs','stock_movements','sales','sale_items')`. Rencanakan partisi bulanan atau arsip ke tabel dingin bila salah satunya melewati beberapa juta baris.
@@ -115,3 +115,8 @@ Migrasi `20261031000024` (min_client 2.5.0). Pengaturan baru (Menu → Pengatura
 | F-17 | `rpc_cash_approve` terhubung (catatan wajib bila selisih; tidak boleh sesi sendiri), `rpc_shift_list` (nama kasir, sisa laci shift sebelumnya, status tinjauan), laporan **Selisih kas** |
 
 **Belum dikerjakan dari F-10:** status pembayaran `pending/confirmed` masih bawaan `confirmed` (hanya referensi dan laporan rekonsiliasi). Tes SQL baru: `tests/003_p1_kontrol.test.sql` (jalankan lewat `run.sh` di staging).
+
+## Perubahan v2.5.1: reset data transaksi per outlet
+Migrasi `20261031000025`. `rpc_data_reset` (aksi klien `data.reset`) khusus Owner dan hanya berlaku untuk outlet aktif. Tanpa `terapkan` fungsi ini hanya menghitung (pratinjau). Untuk menghapus: `terapkan=true`, `konfirmasi` = kode outlet, `alasan` minimal 3 huruf, `request_id`, dan `stok` = `nol` (bawaan) atau `pertahankan` (jumlah dan HPP tetap, ditulis ulang sebagai mutasi `opening`).
+Dihapus: penjualan, pembayaran, impor Shopee, sesi dan mutasi kas, biaya outlet, pembelian, produksi, transfer yang menyentuh outlet, kerugian persediaan, ledger stok, penghitung nomor struk, persetujuan diskon. Tetap: master data, pengguna, pengaturan, `audit_logs` (reset dicatat di sana) dan kunci idempotensi.
+Ditolak bila ada transfer berjalan (submitted/approved/sent) atau periode terkunci. Trigger anti-hapus pada `stock_movements` dan `inventory_losses` dimatikan hanya di dalam transaksi fungsi ini. Layar: Menu, Hati-hati, Reset data transaksi.

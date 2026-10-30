@@ -57,7 +57,7 @@ const MANAGE_ROLES = ['owner', 'admin'];
    MIN_SCHEMA = migrasi terakhir yang dibutuhkan klien ini (harus ada di supabase/migrations; dijaga tests/release_check.js).
    Database lebih lama => berhenti dengan pesan jelas (bukan galat 404 acak di tengah transaksi).
    Database mensyaratkan klien lebih baru (min_client) => minta perangkat memperbarui aplikasi. */
-const MIN_SCHEMA = '20261031000024';
+const MIN_SCHEMA = '20261031000025';
 const semverLt = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
 let schemaOkAt = 0;
 async function checkSchema(token) {
@@ -251,6 +251,7 @@ async function call(action, p, token, tokCb) {
       return r && r[0] ? {sale: {id: r[0].id, nomor: r[0].receipt_no, outlet_id: r[0].outlet_id, total: Number(r[0].total)}} : {sale: null};
     }
     case 'sale.return': { const id = approvalId(p.override_token), q = Object.assign({}, p); delete q.override_token; if (id) q.approval_id = id; return rpc('sale_return', q, token); }
+    case 'data.reset': return rpc('data_reset', withOutlet(p), token);   // khusus Owner; hanya outlet aktif. p.terapkan=false = pratinjau jumlah, true = hapus (perlu konfirmasi kode outlet)
     case 'sale.review': return rpc('sale_review', p, token);   // Owner/Supervisor menandai transaksi bertanda 'perlu ditinjau' sudah ditinjau
     case 'sale.detail': return rpc('sale_detail', p, token);
     case 'sales.list': return rpc('sales_list', withOutlet(p), token);

@@ -12,3 +12,4 @@ psql -f seed.sql
 psql -f tests/001_multi_outlet.test.sql
 psql -f tests/002_p0_kontrol.test.sql
 psql -f tests/003_p1_kontrol.test.sql
+psql -f tests/004_data_reset.test.sql
