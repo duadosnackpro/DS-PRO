@@ -115,6 +115,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // P1-3: tidak pernah melaporkan sukses bila tidak ada baris yang terkena. Tabel dengan kolom 'active' dinonaktifkan (hapus lunak);
 // channel_prices (tanpa kolom active, kunci majemuk 'variant_id:channel_id') dihapus sungguhan; selain itu galat eksplisit.
 async function masterRemove(p, token) {
+  if (p.table === 'recipes') { await rpc('recipe_delete', {id: p.id}, token); return {id: p.id}; }   // 0030: hapus lunak lewat RPC (recipes tidak bisa ditulis langsung)
   const cfg = MASTER[p.table]; if (!cfg) throw fail('Tabel ini belum didukung: ' + p.table);
   const rep = {Prefer: 'return=representation'};
   let r;

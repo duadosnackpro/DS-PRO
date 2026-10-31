@@ -17,3 +17,4 @@ psql -f tests/005_observability_realtime.test.sql
 psql -f tests/006_report_ops.test.sql
 psql -f tests/007_receipt_seq_overflow.test.sql
 psql -f tests/008_sync_signal_index.test.sql
+psql -f tests/009_recipe_delete.test.sql

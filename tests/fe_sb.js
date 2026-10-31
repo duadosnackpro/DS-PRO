@@ -80,6 +80,7 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
     if (/rpc_report_legacy/.test(url)) return {status: 200, body: {type: body.p.type, title: 'T', columns: [], fmt: [], rows: [], summary: []}};
     if (/rpc_production_list/.test(url)) return {status: 200, body: []};
     if (/rpc_recipe_save/.test(url)) return {status: 200, body: {recipe: {id: 'r-1', nama: 'Resep A'}}};
+    if (/rpc_recipe_delete/.test(url)) return {status: 200, body: {id: body.p.id}};
     if (/rpc_recipe_copy/.test(url)) return {status: 200, body: {dibuat: [{id: 'r-2'}]}};
     if (/recipe_items\?/.test(url)) return rt.__failItems ? new Error('offline') : {status: 200, body: [{id: 'i1', recipe_id: 'r-1', material_id: 'm1', qty: 2}]};
     if (/\/expenses\?/.test(url)) return {status: 200, body: [{id: 'e1', expense_date: '2026-10-28', category: 'Gas', amount: '15000.00', note: null, outlet_id: 'o1'}]};
@@ -121,6 +122,8 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   ok(rt.user_unlock.user_id === 'u1', 'user.unlock => rpc_user_unlock (bukan stub)');
   const cp = await q.S.call('recipe.copy', {source_id: 'r-1', targets: [{variant_id: 'v2', nama: 'S'}]}, good);
   ok(rt.recipe_copy.source_id === 'r-1' && cp.dibuat.length === 1, 'recipe.copy => rpc_recipe_copy');
+  const rd = await q.S.call('master.remove', {table: 'recipes', id: 'r-9'}, good);
+  ok(rt.recipe_delete && rt.recipe_delete.id === 'r-9' && rd.id === 'r-9', 'master.remove(recipes) => rpc_recipe_delete (bukan galat "belum didukung")');
   // ---- P1 (F-08, F-15, F-16, F-17) ----
   await q.S.call('shift.list', {}, good);
   ok(rt.shift_list && rt.shift_list.outlet_id === 'o1', 'shift.list => rpc_shift_list (nama kasir, fisik_sebelumnya dari server)');
