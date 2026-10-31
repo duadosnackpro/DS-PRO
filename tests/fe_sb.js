@@ -86,7 +86,7 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
     if (/\/expenses\?/.test(url)) return {status: 200, body: [{id: 'e1', expense_date: '2026-10-28', category: 'Gas', amount: '15000.00', note: null, outlet_id: 'o1'}]};
     if (/rpc_stock_reconcile/.test(url)) return {status: 200, body: {jumlah: 2, selisih: [{outlet_id: 'o1', item_type: 'variant', item_id: 'v1', saldo: 5, ledger: 4, selisih: 1}, {outlet_id: 'o1', item_type: 'material', item_id: 'm1', saldo: '2.5', ledger: 3, selisih: '-0.5'}]}};
     if (/rpc_bootstrap/.test(url)) return {status: 200, body: Object.assign(boot('owner'), {products: [{id: 'p1', nama: 'Makaroni'}], variants: [{id: 'v1', product_id: 'p1', ukuran: '70', level_pedas: 'Level 1'}, {id: 'v2', product_id: 'p1', ukuran: '100'}], materials: [{id: 'm1', nama: 'Tepung'}]})};
-    if (/rpc_(sale_reject_log|cash_open|cash_movement_add|cash_summary|transfer_action|user_unlock|shift_list|cash_approve|expense_void|purchase_cancel|period_lock_set|hpp_backfill)/.test(url)) return {status: 200, body: {ok: true}};
+    if (/rpc_(sale_reject_log|cash_open|cash_movement_add|cash_summary|transfer_action|user_unlock|shift_list|cash_approve|cash_reopen|expense_void|purchase_cancel|period_lock_set|hpp_backfill)/.test(url)) return {status: 200, body: {ok: true}};
     return {status: 404, body: {message: 'x'}};
   };
   const q = load(hh); q.S.setOutlet('o1');
@@ -129,6 +129,8 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   ok(rt.shift_list && rt.shift_list.outlet_id === 'o1', 'shift.list => rpc_shift_list (nama kasir, fisik_sebelumnya dari server)');
   await q.S.call('shift.approve', {id: 's1', catatan: 'uang kembalian salah'}, good);
   ok(rt.cash_approve.id === 's1' && rt.cash_approve.catatan === 'uang kembalian salah', 'shift.approve => rpc_cash_approve dengan catatan');
+  await q.S.call('shift.reopen', {id: 's1', alasan: 'salah ketik uang laci'}, good);
+  ok(rt.cash_reopen.id === 's1' && rt.cash_reopen.alasan === 'salah ketik uang laci', 'shift.reopen => rpc_cash_reopen dengan alasan');
   await q.S.call('expense.void', {id: 'e1', alasan: 'salah ketik'}, good);
   ok(rt.expense_void.id === 'e1' && rt.expense_void.alasan === 'salah ketik' && /^[0-9a-f-]{8,}|^x/.test(rt.expense_void.request_id), 'expense.void => rpc_expense_void dengan request_id');
   await q.S.call('purchase.cancel', {id: 'p1', alasan: 'dobel input'}, good);

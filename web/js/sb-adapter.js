@@ -265,6 +265,7 @@ async function call(action, p, token, tokCb) {
     case 'shift.list': {
       return rpc('shift_list', withOutlet(), token);   // F-17: nama kasir, fisik_sebelumnya, status tinjauan; waktu dalam zona outlet (F-14)
     }
+    case 'shift.reopen': return rpc('cash_reopen', {id: p.id, alasan: p.alasan}, token);                             // 0031: buka kembali penutupan yang salah input
     case 'shift.approve': return rpc('cash_approve', {id: p.id, catatan: p.catatan}, token);                          // F-17
     case 'expense.void': return rpc('expense_void', {id: p.id, alasan: p.alasan, request_id: p.request_id || uuid()}, token);   // F-16
     case 'purchase.list': {                                                                                           // F-16: pembelian terakhir outlet aktif
