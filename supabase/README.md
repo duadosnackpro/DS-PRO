@@ -1,4 +1,4 @@
-# DUADO POS — backend Supabase (v2.5.1, multi-outlet)
+# DUADO POS — backend Supabase (v2.5.2, multi-outlet)
 
 Implementasi PRD "v2.0.0 → Multi-Outlet Ready", Fase 1–2 (+ pondasi Fase 4–5). Satu database melayani semua outlet; isolasi ditegakkan di database.
 
