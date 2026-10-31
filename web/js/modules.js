@@ -19,9 +19,9 @@ function hppCheck(from, to) {
   const k = from + '|' + to, vk = A.dverKey() + '|' + A.today(); if (hc[k] && hc[k].vk === vk) return Promise.resolve(hc[k].v);
   return api('report.get', {type: 'penjualan', from: from, to: to}, {silent: true}).then(r => { const v = hppOf(r.rows); hc[k] = {vk: vk, v: v}; return v; });
 }
-const hppOf = rows => { const bad = rows.filter(x => !(Number(x[5]) > 0)); return {n: bad.length, names: bad.map(x => (x[0] + ' ' + x[1]).trim())}; };
+const hppOf = rows => { const bad = rows.filter(x => Number(x[2]) !== 0 && !(Number(x[5]) > 0)); return {n: bad.length, names: bad.map(x => (x[0] + ' ' + x[1]).trim())}; }; // baris neto 0 unit (mis. terjual lalu diretur penuh) tidak dihitung
 const warnBanner = v => '<div class="warn-b" role="alert"><div><b>Laba belum akurat:</b> ' + v.n + ' produk belum punya resep/HPP<div class="muted">' + esc(v.names.slice(0, 3).join(', ')) + (v.names.length > 3 ? ' dan ' + (v.names.length - 3) + ' lainnya' : '') + '</div></div><button class="btn pri sm" data-act="go_resep">Lengkapi di Resep</button></div>';
-const qMark = '<span class="q-m" title="HPP belum diisi, margin belum bisa dihitung" aria-label="margin belum bisa dihitung">?</span>';
+const qMark = '<span class="q-m" title="HPP belum diisi, laba dan margin belum bisa dihitung" aria-label="laba dan margin belum bisa dihitung">?</span>';
 
 /* ---------- Beranda (dashboard) ---------- */
 function vDash(force) { // force: tombol muat ulang (↻) memaksa ambil ulang dari server
@@ -62,16 +62,35 @@ function heroHtml(d, lab) { // kartu utama: omzet, pembanding, batang harian (ba
   return '<div class="hero"><small>Omzet ' + (PLAB[d.period] || '') + '</small><div class="big">' + rp(c.omzet) + '</div><div class="dlt">' + delta(c.omzet, p.omzet, lab) + '</div><div class="hbars bchart" role="img" aria-label="Omzet per hari. Ketuk batang untuk melihat nilai.">' + bars + '</div><div class="hlab">' + labs + '</div><div class="btip" id="bt" aria-live="polite">Ketuk batang untuk nilai harian (bagian bawah batang = laba kotor)</div></div>';
 }
 const CMP = {hari: 'vs kemarin', minggu: 'vs 7 hari sebelumnya', bulan: 'vs periode sama bulan lalu'};
+/* Peringatan Beranda dikumpulkan jadi satu ikon (bukan banner yang memakan layar). Ketuk ikon: daftar lengkap, tiap item tetap punya tombol aksinya. */
+function dashWarnings(d) {
+  const w = [];
+  if (d.stok_minus && d.stok_minus.length) w.push({judul: 'Stok minus, perlu opname', teks: d.stok_minus.slice(0, 4).map(x => x.nama + ' (' + dec(x.stok) + ')').join(', ') + (d.stok_minus.length > 4 ? ' dan ' + (d.stok_minus.length - 4) + ' lainnya' : '') + '. Penjualan tetap tercatat; stok server lebih kecil dari stok fisik.', tombol: 'Buka Stok', act: 'tab', t: 'stok'});
+  if (d.review_trx) w.push({judul: num(d.review_trx) + ' transaksi perlu ditinjau', teks: 'Diterima dengan harga server setelah tertunda/offline.', tombol: 'Buka Riwayat', act: 'tab', t: 'riwayat'});
+  (d.peringatan || []).forEach(x => {
+    const o = typeof x === 'string' ? {teks: x, aksi: 'set'} : x;
+    if (o.aksi === 'hpp') w.push({judul: 'HPP belum lengkap', teks: o.teks, tombol: A.can('manage') ? 'Perbaiki HPP' : '', act: 'hppfix'});
+    else if (o.aksi === 'stok') w.push({judul: 'Stok', teks: o.teks, tombol: 'Buka Stok', act: 'tab', t: 'stok'});
+    else w.push({judul: 'Perlu perhatian', teks: o.teks, tombol: 'Pengaturan', act: 'go_settings'});
+  });
+  return w;
+}
+const warnIcon = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 2.8 19.5h18.4L12 3.5z"/><path d="M12 10v4.5M12 17.4v.1"/></svg>';
+function drawBell() {
+  const e = $('#wbell'); if (!e) return; const n = (S.dwarn || []).length;
+  e.innerHTML = n ? '<button class="wbell" data-act="dwarn" aria-label="' + n + ' peringatan, ketuk untuk melihat">' + warnIcon + '<b>' + n + '</b></button>' : '';
+}
 function drawDash(d) {
   const c = d.cur, p = d.prev, tot = d.channels.reduce((a, x) => a + x.omzet, 0), maxQ = Math.max(1, ...d.top.map(t => t.qty)), lab = CMP[d.period] || 'vs sebelumnya';
   const days = Math.round((new Date(d.to + 'T12:00:00') - new Date(d.from + 'T12:00:00')) / 86400000) + 1, pto = d.pto || A.addDays(d.from, -1), pfrom = d.pfrom || A.addDays(pto, -(days - 1)); S.dser = d.series;
-  $('#dbody').innerHTML = '<div id="hppw"></div>' + (d.stok_minus && d.stok_minus.length ? '<div class="warn-b" role="alert"><div><b>Stok minus, perlu opname:</b> ' + esc(d.stok_minus.slice(0, 4).map(x => x.nama + ' (' + dec(x.stok) + ')').join(', ')) + (d.stok_minus.length > 4 ? ' dan ' + (d.stok_minus.length - 4) + ' lainnya' : '') + '<div class="muted">Penjualan tetap tercatat; stok server lebih kecil dari stok fisik.</div></div><button class="btn pri sm" data-act="tab" data-t="stok">Buka Stok</button></div>' : '') + (d.review_trx ? '<div class="warn-b" role="alert"><div><b>' + num(d.review_trx) + ' transaksi perlu ditinjau</b> (diterima dengan harga server setelah tertunda/offline).</div><button class="btn pri sm" data-act="tab" data-t="riwayat">Buka Riwayat</button></div>' : '') + (d.peringatan || []).map(w => { const o = typeof w === 'string' ? {teks: w, aksi: 'set'} : w, b = o.aksi === 'hpp' ? (A.can('manage') ? '<button class="btn pri sm" data-act="hppfix">Perbaiki HPP</button>' : '') : o.aksi === 'stok' ? '<button class="btn pri sm" data-act="tab" data-t="stok">Buka Stok</button>' : '<button class="btn pri sm" data-act="go_settings">Pengaturan</button>'; return '<div class="warn-b" role="alert"><div>' + esc(o.teks) + '</div>' + b + '</div>'; }).join('') + '<p class="muted rcap">' + esc(idRange(d.from, d.to)) + ' · omzet tanpa PPN · pembanding: ' + esc(idRange(pfrom, pto)) + '</p>' + heroHtml(d, lab) + '<div class="kgrid k3">' + kpi('Transaksi', num(c.trx), 'Rata-rata ' + rp(c.trx ? c.omzet / c.trx : 0)) +
+  $('#dbody').innerHTML = '<div class="rcaprow"><p class="muted rcap">' + esc(idRange(d.from, d.to)) + ' · omzet tanpa PPN · pembanding: ' + esc(idRange(pfrom, pto)) + '</p><span id="wbell"></span></div>' + heroHtml(d, lab) + '<div class="kgrid k3">' + kpi('Transaksi', num(c.trx), 'Rata-rata ' + rp(c.trx ? c.omzet / c.trx : 0)) +
     kpi('Laba kotor', rp(c.laba), '<span id="mgn">' + (c.omzet ? pct(c.laba / c.omzet * 100) : '0%') + ' margin</span>') + kpi('Laba bersih', rp(d.laba_bersih), 'setelah fee, biaya' + (d.kerugian ? ', kerugian stok ' + rp(d.kerugian) : '')) + '</div>' +
     '<div class="li" style="display:block"><b>Per channel</b><div style="display:block">' + donut(d.channels, tot) + '<div style="flex:1">' + (d.channels.map((x, i) => '<div class="kv"><span><span class="lgd" style="background:' + COL[i % 5] + ';margin-left:0"></span>' + esc(x.nama) + '</span><span>' + (tot ? pct(x.omzet / tot * 100) : '0%') + '</span></div>').join('') || '<span class="muted">Belum ada penjualan</span>') + '</div></div></div>' +
     '<div class="li" style="display:block"><b>Produk terlaris</b>' + (d.top.map(t => '<div style="margin-top:6px"><div class="kv"><span>' + esc(t.nama) + '</span><span>' + num(t.qty) + ' pcs</span></div><div class="bar"><i style="width:' + Math.round(t.qty / maxQ * 100) + '%"></i></div></div>').join('') || '<div class="muted">Belum ada data</div>') + '</div>' +
     '<div class="li" style="display:block"><b>Perlu perhatian</b>' + (d.low.map(l => '<div class="kv"><span>' + esc(l.nama) + '</span><span><span class="tag">Menipis</span> ' + dec(l.stok) + ' ' + esc(l.satuan) + '</span></div>').join('') || '<div class="muted">Semua stok bahan aman</div>') + (d.biaya ? kv('Biaya operasional', rp(d.biaya)) : '') + '</div>';
   S.dashRange = {from: d.from, to: d.to};
-  if (c.trx && !(d.peringatan || []).some(w => w && w.aksi === 'hpp')) hppCheck(d.from, d.to).then(v => { if (!v.n || !$('#hppw')) return; $('#hppw').innerHTML = warnBanner(v); const mg = $('#mgn'); if (mg && c.omzet && c.laba / c.omzet >= .995) mg.innerHTML = qMark + ' margin belum bisa dihitung'; }).catch(() => {});
+  S.dwarn = dashWarnings(d); drawBell();
+  if (c.trx && !(d.peringatan || []).some(w => w && w.aksi === 'hpp')) hppCheck(d.from, d.to).then(v => { if (!v.n || !$('#wbell')) return; S.dwarn.push({judul: 'Laba belum akurat', teks: v.n + ' produk belum punya resep/HPP: ' + v.names.slice(0, 3).join(', ') + (v.names.length > 3 ? ' dan ' + (v.names.length - 3) + ' lainnya' : ''), tombol: 'Lengkapi di Resep', act: 'go_resep'}); drawBell(); const mg = $('#mgn'); if (mg && c.omzet && c.laba / c.omzet >= .995) mg.innerHTML = qMark + ' margin belum bisa dihitung'; }).catch(() => {});
 }
 
 /* ---------- Biaya produksi (dipakai pratinjau, sama dengan hitungan server) ---------- */
@@ -213,7 +232,7 @@ function rfv() {
 }
 
 /* ---------- Laporan ---------- */
-const RTYPES_ALL = [['labarugi', 'Laba rugi'], ['penjualan', 'Penjualan'], ['channel', 'Channel'], ['hpp', 'HPP & margin'], ['stok', 'Stok & nilai'], ['produksi', 'Produksi'], ['pembelian', 'Pembelian'], ['pengeluaran', 'Biaya'], ['metode', 'Pembayaran per metode'], ['transit', 'Dalam perjalanan'], ['penyesuaian', 'Penyesuaian stok'], ['selisih_kas', 'Selisih kas'], ['konsolidasi', 'Semua outlet: laba rugi'], ['konsolidasi_stok', 'Semua outlet: nilai stok']];
+const RTYPES_ALL = [['labarugi', 'Laba rugi'], ['penjualan', 'Penjualan'], ['channel', 'Channel'], ['hpp', 'HPP & margin'], ['stok', 'Stok & nilai'], ['produksi', 'Produksi'], ['pembelian', 'Pembelian'], ['pengeluaran', 'Biaya'], ['metode', 'Pembayaran per metode'], ['transit', 'Dalam perjalanan'], ['penyesuaian', 'Penyesuaian stok'], ['selisih_kas', 'Selisih kas'], ['stok_minimum', 'Stok minimum & stockout'], ['lead_transfer', 'Lead time transfer'], ['durasi_shift', 'Durasi shift kasir'], ['konsolidasi', 'Semua outlet: laba rugi'], ['konsolidasi_stok', 'Semua outlet: nilai stok']];
 /* F7: jenis laporan mengikuti peran (sama dengan rpc_report_legacy): tanpa akses biaya, laba rugi dan HPP disembunyikan. */
 const rtypes = () => RTYPES_ALL.filter(t => /^konsolidasi/.test(t[0]) ? (A.can('cost') && (S.data.outlets || []).length > 1) : (A.can('cost') || ['labarugi', 'hpp'].indexOf(t[0]) < 0));   // F-07: laporan semua outlet (hanya keanggotaan global; server yang menegakkan)
 const PRE = [['today', 'Hari ini'], ['yday', 'Kemarin'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['lmonth', 'Bulan lalu'], ['custom', 'Custom']];
@@ -233,13 +252,29 @@ function vLaporan(skipRun) {
   if (!skipRun) runReport();
 }
 function fmtCell(v, f) { return f === 'rp' ? rp(v) : f === 'num' ? dec(v) : f === 'pct' ? pct(v) : esc(v); }
+/* Laporan penjualan: salinan yang sudah dirapikan (data asli dari cache/server tidak diubah).
+   - baris neto 0 unit & Rp 0 disembunyikan (jumlahnya dicatat)
+   - HPP belum diisi (<= 0): HPP, laba kotor, dan margin dikosongkan (tampil ?), bukan Rp 0 yang membuat laba kotor sama dengan omzet
+   - menambah ringkasan Unit terjual & Rata-rata per transaksi, dan mencocokkan total omzet tabel dengan omzet ringkasan */
+function prepReport(r0) {
+  if (r0.type !== 'penjualan') return r0;
+  const rows = r0.rows.filter(x => !(Number(x[2]) === 0 && Number(x[3]) === 0)).map(x => x.slice()), hidden = r0.rows.length - rows.length;
+  if (A.can('cost')) rows.forEach(x => { if (!(Number(x[5]) > 0)) { x[5] = null; x[6] = null; x[7] = null; } });
+  const sv = l => Number((r0.summary.find(s => s.label === l) || {}).value) || 0, om = sv('Omzet'), trx = sv('Transaksi');
+  const sumOm = rows.reduce((a, x) => a + Number(x[3]), 0), unit = rows.reduce((a, x) => a + Number(x[2]), 0);
+  const summary = r0.summary.concat([{label: 'Unit terjual', value: unit, fmt: 'num'}, {label: 'Rata-rata per transaksi', value: trx > 0 ? Math.round(om / trx) : 0, fmt: 'rp'}]);
+  const notes = []; if (Math.abs(sumOm - om) > 1) notes.push('Total omzet tabel (' + rp(sumOm) + ') berbeda dari omzet ringkasan (' + rp(om) + '). Hubungi admin untuk pengecekan.');
+  return Object.assign({}, r0, {rows: rows, summary: summary, hidden: hidden, sumOm: sumOm, notes: notes});
+}
 function runReport() {
   const el = $('#rres'); if (!el) return; el.innerHTML = skel(4); const want = S.rt;
-  A.vload('report.get', {type: want, from: S.rfrom, to: S.rto}, r => {
-    if (S.tab !== 'laporan' || S.rt !== want || !$('#rres')) return; S.rres = r;
-    const mgHpp = !A.can('cost') ? {} : r.type === 'penjualan' ? {7: 5} : r.type === 'hpp' ? {6: 5, 7: 5} : {}, cell = (row, i, v) => (mgHpp[i] !== undefined && !(Number(row[mgHpp[i]]) > 0)) ? qMark : (v === '' || v == null) && r.fmt[i] !== 'txt' ? '-' : fmtCell(v, r.fmt[i]); // margin tanpa HPP tampil ?; kolom angka kosong tampil -
+  A.vload('report.get', {type: want, from: S.rfrom, to: S.rto}, r0 => {
+    if (S.tab !== 'laporan' || S.rt !== want || !$('#rres')) return; const r = prepReport(r0); S.rres = r;
+    const mgHpp = !A.can('cost') ? {} : r.type === 'penjualan' ? {7: 5} : r.type === 'hpp' ? {6: 5, 7: 5} : {}, cell = (row, i, v) => (mgHpp[i] !== undefined && !(Number(row[mgHpp[i]]) > 0)) ? qMark : (r.type === 'penjualan' && i >= 5 && i <= 7 && v == null && A.can('cost')) ? qMark : (v === '' || v == null) && r.fmt[i] !== 'txt' ? '-' : fmtCell(v, r.fmt[i]); // margin tanpa HPP tampil ?; kolom angka kosong tampil -
     $('#rres').innerHTML = '<div id="hppw"></div><b>' + esc(r.title) + '</b> <span class="muted">' + (['stok', 'hpp', 'transit', 'konsolidasi_stok'].indexOf(want) >= 0 ? 'kondisi saat ini' : esc(idRange(r.from, r.to))) + '</span>' +
       (r.peringatan ? '<div class="warn-b" role="alert"><div><b>Perhatian:</b> ' + esc(r.peringatan) + '</div></div>' : '') +
+      (r.notes || []).map(n => '<div class="warn-b" role="alert"><div><b>Perhatian:</b> ' + esc(n) + '</div></div>').join('') +
+      (r.type === 'penjualan' ? '<p class="muted rcap">Tabel dirinci per produk/varian, sedangkan Transaksi dihitung per nota. Satu nota bisa berisi banyak produk, jadi jumlah baris tidak sama dengan jumlah transaksi. Total omzet semua baris = ' + rp(r.sumOm) + '. Rata-rata per transaksi = Omzet ÷ Transaksi (omzet tanpa PPN, setelah diskon dan retur).' + (r.hidden ? ' ' + r.hidden + ' produk bernilai 0 (neto setelah retur) disembunyikan.' : '') + '</p>' : '') +
       (r.summary.length ? '<div class="kgrid" style="margin-top:8px">' + r.summary.map(s => kpi(esc(s.label), /^Margin/.test(s.label) ? '<span class="mgv" data-v="' + s.value + '">' + fmtCell(s.value, s.fmt) + '</span>' : fmtCell(s.value, s.fmt), '')).join('') + '</div>' : '') +
       (r.rows.length ? '<div class="tw"><table><thead><tr>' + r.columns.map((c, i) => '<th class="' + (r.fmt[i] === 'txt' ? '' : 'n') + '">' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
         r.rows.map(row => '<tr>' + row.map((v, i) => '<td class="' + (r.fmt[i] === 'txt' ? '' : 'n') + '">' + cell(row, i, v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' :
@@ -251,7 +286,7 @@ function runReport() {
 }
 function csvText(r) { const q = x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; return [r.columns.map(q).join(',')].concat(r.rows.map(row => row.map(q).join(','))).join('\r\n'); }
 function download(name, text) { try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF' + text], {type: 'text/csv;charset=utf-8'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); } catch (e) { toast('Unduh tidak didukung di perangkat ini'); } }
-function reportText(r) { return [(set('nama_usaha') || 'Duado Snack') + ' - ' + r.title, r.from + ' s/d ' + r.to].concat(r.summary.map(s => s.label + ': ' + fmtCell(s.value, s.fmt)), r.rows.slice(0, 12).map(row => row.map((v, i) => r.fmt[i] === 'txt' ? v : fmtCell(v, r.fmt[i])).join(' | '))).join('\n'); }
+function reportText(r) { return [(set('nama_usaha') || 'Duado Snack') + ' - ' + r.title, r.from + ' s/d ' + r.to].concat(r.summary.map(s => s.label + ': ' + fmtCell(s.value, s.fmt)), r.rows.slice(0, 12).map(row => row.map((v, i) => r.fmt[i] === 'txt' ? v : v == null ? '-' : fmtCell(v, r.fmt[i])).join(' | '))).join('\n'); }
 
 /* ---------- Impor Shopee (CSV) ---------- */
 const SM = [['order', 'No. pesanan', [/no\.?\s*pesanan/i, /order\s*(id|sn|no)/i, /nomor\s*pesanan/i]], ['sku', 'SKU (harus sama dengan SKU varian)', [/nomor referensi sku/i, /sku variasi|variation sku/i, /sku/i]], ['qty', 'Jumlah', [/^jumlah$/i, /quantity|^qty$/i, /jumlah/i]],
@@ -389,6 +424,8 @@ Object.assign(ACT, {
     }
   }),
   /* F-08: perbaiki HPP kosong pada penjualan periode Beranda: pratinjau dampak dulu, baru terapkan (hanya Owner/Admin; tercatat di audit). */
+  dwarn: () => { const w = S.dwarn || []; sheet('<div class="sh-h"><h2>Peringatan (' + w.length + ')</h2></div>' + (w.map((x, i) => '<div class="warn-b" role="note"><div><b>' + esc(x.judul) + '</b><div class="muted">' + esc(x.teks) + '</div></div>' + (x.tombol ? '<button class="btn pri sm" data-act="dwgo" data-i="' + i + '" data-t="' + esc(x.t || '') + '">' + esc(x.tombol) + '</button>' : '') + '</div>').join('') || '<p class="muted">Tidak ada peringatan.</p>') + '<button class="btn sec" data-act="close">Tutup</button>'); },
+  dwgo: el => { const x = (S.dwarn || [])[Number(el.dataset.i)]; closeSheet(); if (x && ACT[x.act]) ACT[x.act](el); },
   hppfix: () => busy('Menghitung…', async () => {
     const R = S.dashRange; if (!R) return;
     try {

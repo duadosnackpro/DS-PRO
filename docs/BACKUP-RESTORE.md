@@ -41,3 +41,6 @@ Pemulihan `auth.users` ke proyek Supabase yang sudah punya data auth dapat bentr
 | Tanggal | Sumber (PITR / backup / dump) | Target | Hasil (baris sales/ledger cocok?) | Durasi | Oleh |
 |---|---|---|---|---|---|
 |  |  |  |  |  |  |
+
+## Uji prosedur di Postgres lokal (v2.5.2, BUKAN uji pemulihan produksi)
+Prosedur dump → enkripsi gpg → dekripsi → `pg_restore` dicoba pada database uji hasil migrasi + tes (PG 16, skema `public`, `app`, `auth`): jumlah baris `sales`, `stock_movements`, dan `auth.users` sama sebelum dan sesudah; satu peringatan tidak berbahaya (`CREATE SCHEMA public` sudah ada). Ini hanya membuktikan langkahnya benar; tabel kuartalan di atas tetap harus diisi dari uji pada proyek Supabase staging/produksi sungguhan.

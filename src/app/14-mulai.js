@@ -20,15 +20,16 @@ function reloadWhenIdle() {
   rlT = setTimeout(reloadWhenIdle, 1500);
 }
 ACT.reload = () => { if (S.token && S.data && !idleNow()) return toast('Selesaikan dulu layar yang sedang terbuka, lalu tekan Muat ulang lagi'); if (swReg && swReg.waiting) swReg.waiting.postMessage({type: 'SKIP_WAITING'}); else location.reload(); };
-window.addEventListener('online', () => { badge(); flush(); checkUpdates(true); });
+window.addEventListener('online', () => { badge(); flush(); checkUpdates(true); rtEnsure(); remoteFlush(); });
 window.addEventListener('offline', badge);
 document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); if (!document.hidden) { checkUpdates(); flush(); btWake(); if (swReg) swReg.update().catch(() => {}); } });
 async function start() {
   await Store.init();
   S.token = LS.get('token', null); S.data = LS.get('data', null); S.queue = LS.get('queue', []); S.queue.forEach(q => { const o = q.payload && q.payload.override; if (o && typeof o.diskon === 'string' && o.diskon.indexOf('sbov:') === 0) delete q.payload.override; }); /* P1-4/P1-5: token approver (JWT) dari versi lama tidak boleh tetap tersimpan */ S.ch = LS.get('ch', null); S.cart = LS.get('cart', []); S.metode = LS.get('metode', 'tunai'); S.lastSync = LS.get('lastsync', 0) || null; S.hideOut = !!LS.get('hideOut', false);
-  if (S.token && S.data) { S.tab = homeTab(); render(); shiftCheck().then(() => { if (S.tab === 'kasir') render(); }); checkUpdates(true); flush(); setTimeout(notifyConflicts, 1200); } else renderLogin(); // transaksi "perlu ditinjau" dari sesi sebelumnya langsung diingatkan
+  if (S.token && S.data) { S.tab = homeTab(); render(); shiftCheck().then(() => { if (S.tab === 'kasir') render(); }); checkUpdates(true); flush(); rtEnsure(); bootOnce(); setTimeout(notifyConflicts, 1200); } else renderLogin(); // transaksi "perlu ditinjau" dari sesi sebelumnya langsung diingatkan
 }
 window.addEventListener('pagehide', () => Store.flush());
+setInterval(pollTick, 15000);   // v2.5.2: polling cadangan; seberapa sering benar-benar memeriksa ditentukan pollEvery()
 if (window.MutationObserver) new MutationObserver(ms => { if (ms.every(m => { const t = /** @type {any} */ (m.target); return t.closest && t.closest('#grid,#cl,#cartbar,#tot,#addons'); })) return; /* v1.9.9: tap produk tidak lagi memaksa pengukuran tata letak */ cancelAnimationFrame(S.fr); S.fr = requestAnimationFrame(initFades); }).observe(document.getElementById('app'), {childList: true, subtree: true});
 if (window.matchMedia) { const mq = matchMedia('(min-width: 768px)'); (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => { if (S.token && S.data && $('#sheet').hidden && !S.dirty) render(); }); }
 Object.assign(APP.views, {tutup: vTutup, kasir: vKasir, riwayat: vRiwayat, stok: vStok, menu: vMenu, master: vMaster, users: vUsers, settings: vSettings, diag: vDiag});

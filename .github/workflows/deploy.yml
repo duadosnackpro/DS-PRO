@@ -7,6 +7,7 @@
 #      Proyek yang sudah dipasang manual WAJIB 'supabase migration repair' sekali (lihat supabase/README.md), kalau tidak push mencoba memasang ulang semua migrasi.
 #   3. (Opsional, disarankan) Environment "staging" dengan secret/variabel yang sama untuk proyek Supabase terpisah, ditambah Variables
 #      SUPABASE_URL dan SUPABASE_KEY (publishable). Tanpa SUPABASE_PROJECT_REF di environment staging, tahap staging dilewati.
+#   2b. (v2.5.2, WAJIB untuk produksi) Variable ALLOWED_ORIGINS = origin situs (mis. https://akun.github.io); opsional PIN_MIN_LENGTH (6-10, bawaan 8).
 #   2. Settings > Secrets and variables > Actions > tab Variables: SUPABASE_KEY = publishable/anon key (BUKAN service_role).
 #      SUPABASE_URL opsional (bila kosong dipakai nilai di web/js/config.js).
 name: Deploy
@@ -32,24 +33,27 @@ jobs:
       - id: has
         run: '[ -n "${{ vars.SUPABASE_PROJECT_REF }}" ] && echo "on=1" >> "$GITHUB_OUTPUT" || echo "::notice::Environment staging belum dikonfigurasi, tahap staging dilewati"'
       - if: steps.has.outputs.on == '1'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - if: steps.has.outputs.on == '1'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - if: steps.has.outputs.on == '1'
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3
         with:
-          version: latest   # TODO: sematkan ke versi tertentu setelah dicoba sekali di staging
+          version: 2.121.0   # dipin (v2.5.2); naikkan sengaja setelah dicoba di staging
       - name: Pasang migrasi dan Edge Function di staging
         if: steps.has.outputs.on == '1'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+          PIN_MIN_LENGTH: ${{ vars.PIN_MIN_LENGTH }}
         run: |
           set -e
           supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
           supabase db push
+          if [ -n "$ALLOWED_ORIGINS" ]; then supabase secrets set ALLOWED_ORIGINS="$ALLOWED_ORIGINS" ${PIN_MIN_LENGTH:+PIN_MIN_LENGTH="$PIN_MIN_LENGTH"}; else echo "::warning::ALLOWED_ORIGINS belum diisi di environment staging; admin-users akan menolak permintaan browser."; fi
           supabase functions deploy admin-users
       - name: Verifikasi versi skema staging
         if: steps.has.outputs.on == '1'
@@ -60,24 +64,29 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3
         with:
-          version: latest   # TODO: sematkan ke versi tertentu
+          version: 2.121.0   # dipin (v2.5.2); naikkan sengaja setelah dicoba di staging
       - name: Pasang migrasi dan Edge Function di produksi
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+          PIN_MIN_LENGTH: ${{ vars.PIN_MIN_LENGTH }}
         run: |
           set -e
           [ -n "$REF" ] && [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_DB_PASSWORD" ] || { echo "::error::Environment production belum lengkap: SUPABASE_PROJECT_REF, SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD"; exit 1; }
           supabase link --project-ref "$REF"
           supabase db push --dry-run
           supabase db push
+          # v2.5.2: CORS Edge Function wajib dikonfigurasi (kosong = semua origin browser ditolak). Variable repo ALLOWED_ORIGINS, mis. https://akun.github.io
+          [ -n "$ALLOWED_ORIGINS" ] || { echo "::error::Variable ALLOWED_ORIGINS belum diisi (mis. https://akun.github.io). Tanpa ini Edge Function admin-users menolak semua permintaan browser."; exit 1; }
+          supabase secrets set ALLOWED_ORIGINS="$ALLOWED_ORIGINS" ${PIN_MIN_LENGTH:+PIN_MIN_LENGTH="$PIN_MIN_LENGTH"}
           supabase functions deploy admin-users
       - name: Verifikasi versi skema produksi
         env:
@@ -94,8 +103,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - name: Rakit situs (config.js diisi dari variabel repo)
@@ -114,12 +123,12 @@ jobs:
           echo "VERSION=$VER" >> "$GITHUB_ENV"
       - name: Periksa isi paket yang akan terbit
         run: WEB_SRC=_site node tests/release_check.js
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: _site
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
       - name: Verifikasi versi yang tayang (sw.js dan config.js)
         env:
           URL: ${{ steps.deployment.outputs.page_url }}

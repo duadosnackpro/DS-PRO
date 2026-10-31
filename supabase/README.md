@@ -1,4 +1,4 @@
-# DUADO POS — backend Supabase (v2.5.2, multi-outlet)
+# DUADO POS — backend Supabase (v2.5.5, multi-outlet)
 
 Implementasi PRD "v2.0.0 → Multi-Outlet Ready", Fase 1–2 (+ pondasi Fase 4–5). Satu database melayani semua outlet; isolasi ditegakkan di database.
 
@@ -23,6 +23,7 @@ Implementasi PRD "v2.0.0 → Multi-Outlet Ready", Fase 1–2 (+ pondasi Fase 4�
 | `0016` | `rpc_schema_version()`: versi skema untuk pemeriksaan deploy dan klien (P0-3) |
 | `0017` | hash idempotensi `sale` mengabaikan `client_ts`+`kasir_id`; `app.purge_idempotency()` + jadwal `pg_cron`; persetujuan diskon dari server (`rpc_approval_issue`, `sale_create` menerima `approval_id`) |
 | `0018` | pembatasan laju Edge Function (`rpc_admin_rate_hit`, hanya `service_role`) |
+| `0026` | galat klien (`rpc_client_error_log`, `rpc_client_error_report`), tabel sinyal `sync_events` + trigger + publikasi Realtime (v2.5.2) |
 | `functions/admin-users` | Edge Function pembuat akun PIN (satu-satunya pemakai `service_role`) |
 | `tests/` | tes SQL (PRD §14.2) + `run.sh` |
 
@@ -120,3 +121,14 @@ Migrasi `20261031000024` (min_client 2.5.0). Pengaturan baru (Menu → Pengatura
 Migrasi `20261031000025`. `rpc_data_reset` (aksi klien `data.reset`) khusus Owner dan hanya berlaku untuk outlet aktif. Tanpa `terapkan` fungsi ini hanya menghitung (pratinjau). Untuk menghapus: `terapkan=true`, `konfirmasi` = kode outlet, `alasan` minimal 3 huruf, `request_id`, dan `stok` = `nol` (bawaan) atau `pertahankan` (jumlah dan HPP tetap, ditulis ulang sebagai mutasi `opening`).
 Dihapus: penjualan, pembayaran, impor Shopee, sesi dan mutasi kas, biaya outlet, pembelian, produksi, transfer yang menyentuh outlet, kerugian persediaan, ledger stok, penghitung nomor struk, persetujuan diskon. Tetap: master data, pengguna, pengaturan, `audit_logs` (reset dicatat di sana) dan kunci idempotensi.
 Ditolak bila ada transfer berjalan (submitted/approved/sent) atau periode terkunci. Trigger anti-hapus pada `stock_movements` dan `inventory_losses` dimatikan hanya di dalam transaksi fungsi ini. Layar: Menu, Hati-hati, Reset data transaksi.
+
+## Perubahan v2.5.2: observabilitas, Realtime, pengerasan operasional
+Migrasi `20261031000026` (tidak menaikkan `min_client`; klien lama tetap berjalan).
+
+**Galat klien (KPI error rate).** Klien melapor `error`/`promise` tak tertangani, `boot` (awal sesi) dan `rt` (Realtime putus) lewat `rpc_client_error_log` (maks 20 per panggilan, 60 per pengguna per menit, pesan dipotong 300 karakter, stack 1000). Tidak dihitung sebagai galat sesi: galat printer/foto, penolakan bisnis dari server, jaringan putus. Retensi 30 hari (pembersihan oportunistik + `pg_cron` bila ada). Owner/Admin/Auditor melihat ringkasan 7 hari di Menu → Diagnostik (`rpc_client_error_report`: sesi, sesi bergalat, persen, galat teratas). Target < 0,1% sesi.
+
+**Realtime.** Klien mendengarkan INSERT pada `public.sync_events` saja (id, outlet_id, kind `cat`/`stock`, waktu; tanpa data bisnis) dan menjalankan `ping` versi yang sudah ada, lalu memuat ulang bagian yang berubah. Tabel bisnis sengaja TIDAK dipublikasikan: Realtime tidak menghormati hak kolom sehingga `avg_cost` (HPP) akan terkirim ke kasir. Sinyal dibuat trigger pada `products`, `product_variants`, `channels`, `channel_prices`, `outlet_prices`, `settings` (kind `cat`, semua outlet) dan `inventory_balances` (kind `stock`, per outlet, digabung per 2 detik, insert-only supaya penjualan serentak tidak saling mengunci). Cadangan: bila Realtime tidak tersambung, polling 45 detik; bila tersambung, jaring pengaman 3 menit. Matikan dengan `CONFIG.REALTIME = false`. CSP `connect-src` menambah `wss://*.supabase.co`. Di dasbor Supabase pastikan *Database → Replication/Realtime* tidak menonaktifkan publikasi `supabase_realtime`; migrasi menambahkan `sync_events` otomatis.
+
+**Edge Function `admin-users`.** (1) `ALLOWED_ORIGINS` WAJIB: kosong = semua permintaan ber-Origin ditolak 403 (sebelumnya `*`). `deploy.yml` mengisinya dari Variable repo `ALLOWED_ORIGINS` dan menggagalkan deploy produksi bila kosong. (2) PIN akun operasional minimal 8 angka (bawaan; ubah lewat secret/Variable `PIN_MIN_LENGTH` 6-10). PIN 6 angka lama tetap bisa login; aturan baru berlaku saat PIN dibuat/diganti. Ini kompensasi bila hook penguncian akun (0021) tidak tersedia di paket Anda.
+
+**CI/CD.** Semua action dipin ke SHA commit; Supabase CLI dipin `2.121.0` lewat `supabase/setup-cli` v3 (tag `v1` yang dipakai sebelumnya tidak ada lagi di repositori action). Workflow baru `uptime.yml` (lihat `docs/MONITORING.md`). CI kini juga menjalankan `test:rt` dan `test:bt`.

@@ -26,15 +26,22 @@ export function checkTarget(c: Caller, target: Membership[] | null | undefined):
 export const ALL_ROLES = ["owner", "admin", "supervisor", "kasir", "stok", "produksi", "auditor"];
 export const RATE_PER_MINUTE = 30;
 
-// CORS: bila ALLOWED_ORIGINS (daftar dipisah koma, mis. https://akun.github.io) diisi, hanya origin itu yang dipantulkan.
-// Bila kosong tetap "*" (perilaku lama) supaya deploy tidak memutus klien; fungsi ini memakai header Authorization (bukan cookie),
-// jadi pembatasan ini lapisan tambahan, bukan satu-satunya pagar.
+// CORS (v2.5.2): ALLOWED_ORIGINS (daftar dipisah koma, mis. https://akun.github.io) WAJIB diisi. Bila kosong, tidak ada origin browser yang diizinkan
+// (tanpa header Access-Control-Allow-Origin) dan index.ts menolak permintaan ber-Origin dengan 403. Sebelumnya kosong = "*".
+// Permintaan tanpa header Origin (bukan dari browser) tidak terkena pembatasan ini; kewenangan sebenarnya tetap JWT + pemeriksaan peran.
+export function parseOrigins(allowed: string | undefined): string[] {
+  return (allowed ?? "").split(",").map((s) => s.trim().replace(/\/$/, "")).filter(Boolean);
+}
 export function corsFor(origin: string | null, allowed: string | undefined): Record<string, string> {
-  const base = { "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
-  const list = (allowed ?? "").split(",").map((s) => s.trim().replace(/\/$/, "")).filter(Boolean);
-  if (!list.length) return { ...base, "Access-Control-Allow-Origin": "*" };
+  const base = { "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Vary": "Origin" };
   const o = (origin ?? "").replace(/\/$/, "");
-  return list.includes(o) ? { ...base, "Access-Control-Allow-Origin": o, "Vary": "Origin" } : { ...base, "Vary": "Origin" };
+  return o && parseOrigins(allowed).includes(o) ? { ...base, "Access-Control-Allow-Origin": o } : base;
+}
+export function originVerdict(origin: string | null, allowed: string | undefined): "ok" | "not_configured" | "forbidden" {
+  if (!origin) return "ok";
+  const list = parseOrigins(allowed);
+  if (!list.length) return "not_configured";
+  return list.includes(origin.replace(/\/$/, "")) ? "ok" : "forbidden";
 }
 
 export const rateExceeded = (n: unknown, limit = RATE_PER_MINUTE): boolean => Number(n) > limit;
@@ -54,11 +61,17 @@ export function deactivationProblem(caller: string, uid: string, target: Members
 }
 
 // ---- F8: kredensial ----
-// Owner/Admin/Auditor memegang akses luas: kata sandi minimal 10 karakter (huruf dan angka), bukan PIN. Peran operasional tetap PIN 6-10 angka.
+// Owner/Admin/Auditor memegang akses luas: kata sandi minimal 10 karakter (huruf dan angka), bukan PIN. Peran operasional memakai PIN angka;
+// v2.5.2: minimal 8 angka (bawaan) sebagai kompensasi bila hook penguncian akun tidak tersedia di paket Supabase. Dapat diubah lewat secret PIN_MIN_LENGTH (6-10).
+export const PIN_MIN_DEFAULT = 8;
+export function pinMinFrom(v: string | undefined | null): number {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 6 && n <= 10 ? n : PIN_MIN_DEFAULT;
+}
 export const PRIVILEGED_ROLES = ["owner", "admin", "auditor"];
 export const isPrivilegedRole = (roles: string[]): boolean => roles.some((r) => PRIVILEGED_ROLES.includes(r));
 
-export function secretProblem(secret: string, privileged: boolean): string | null {
+export function secretProblem(secret: string, privileged: boolean, pinMin: number = PIN_MIN_DEFAULT): string | null {
   if (privileged) {
     if (secret.length < 10) return "Kata sandi Owner/Admin/Auditor minimal 10 karakter.";
     if (secret.length > 72) return "Kata sandi maksimal 72 karakter.";
@@ -66,7 +79,7 @@ export function secretProblem(secret: string, privileged: boolean): string | nul
     if (/^(.)\1+$/.test(secret)) return "Kata sandi tidak boleh karakter yang sama semua.";
     return null;
   }
-  if (!/^\d{6,10}$/.test(secret)) return "PIN harus 6-10 angka.";
+  if (!new RegExp(`^\\d{${pinMin},10}$`).test(secret)) return `PIN harus ${pinMin}-10 angka.`;
   if (/^(\d)\1+$/.test(secret)) return "PIN tidak boleh angka yang sama semua.";
   const d = [...secret].map(Number);
   if (d.every((x, i) => i === 0 || x === d[i - 1] + 1) || d.every((x, i) => i === 0 || x === d[i - 1] - 1)) return "PIN tidak boleh berurutan.";

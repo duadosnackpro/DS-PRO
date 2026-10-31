@@ -280,7 +280,9 @@ async function call(action, p, token, tokCb) {
     case 'production.cancel': return rpc('production_cancel', p, token);
     case 'production.list': return rpc('production_list', withOutlet(p), token);
     case 'dashboard.get': return rpc('dashboard', withOutlet(p), token);
-    case 'report.get': return (p.type === 'konsolidasi' || p.type === 'konsolidasi_stok') ? rpc('report_konsolidasi', {type: p.type, from: p.from, to: p.to}, token) : rpc('report_legacy', withOutlet(p), token);   // F-07: semua outlet
+    case 'report.get': return (p.type === 'konsolidasi' || p.type === 'konsolidasi_stok') ? rpc('report_konsolidasi', {type: p.type, from: p.from, to: p.to}, token)   // F-07: semua outlet
+      : (p.type === 'stok_minimum' || p.type === 'lead_transfer' || p.type === 'durasi_shift') ? rpc('report_ops', withOutlet(p), token)   // 0027: laporan operasional
+      : rpc('report_legacy', withOutlet(p), token);
     case 'recipe.save': return recipeSave(p, token);
     case 'recipe.copy': return rpc('recipe_copy', p, token);
     case 'master.list': return masterList(p, token);
@@ -331,8 +333,62 @@ async function call(action, p, token, tokCb) {
     case 'transfer.action': return rpc('transfer_action', Object.assign({request_id: uuid()}, p), token);
     case 'transfer.list': return transferList(token);
     case 'user.unlock': return rpc('user_unlock', {user_id: p.id}, token);
+    case 'client.log': return rpc('client_error_log', withOutlet({events: p.events}), token);   // v2.5.2: laporan galat/sesi klien (migrasi 0026)
+    case 'client.errors': return rpc('client_error_report', {days: p.days || 7}, token);
     default: throw fail('Fitur "' + action + '" belum dipindahkan ke backend Supabase (belum tersedia).');
   }
 }
-window.SBAPI = {enabled: enabled, call: call, outlet: () => outletId, setOutlet: id => { outletId = id; ls.set(LSK.outlet, id); }};
+
+/* ---- Realtime (v2.5.2) ----
+   Klien tanpa dependensi, bicara protokol Phoenix (vsn 1.0.0) ke Supabase Realtime. Yang didengarkan HANYA INSERT pada public.sync_events (migrasi 0026):
+   tabel sinyal tanpa data sensitif. Sinyal tidak membawa data bisnis; penerima cukup menjalankan ping versi lalu memuat ulang yang berubah (lihat verSync di app.js).
+   Sambungan putus = mundur eksponensial (2 dtk ... 60 dtk) dan aplikasi beralih ke polling (lihat 14-mulai.js). Setiap tersambung ulang memicu pemeriksaan versi
+   untuk mengejar sinyal yang terlewat. Dinonaktifkan dengan CONFIG.REALTIME = false. */
+const RTM = {ws: null, state: 'off', want: false, hb: null, hbOk: true, retry: 0, timer: null, ref: 0, joinRef: '', getTok: null, onSig: null, onState: null, pushed: ''};
+const rtTopic = 'realtime:duado-sync';
+function rtSet(st) { if (RTM.state !== st) { RTM.state = st; if (RTM.onState) { try { RTM.onState(st); } catch (e) {} } } }
+function rtSend(topic, event, payload, ref) { try { if (RTM.ws && RTM.ws.readyState === 1) RTM.ws.send(JSON.stringify({topic: topic, event: event, payload: payload, ref: ref == null ? String(++RTM.ref) : ref, join_ref: RTM.joinRef})); } catch (e) {} }
+function rtClear() { clearInterval(RTM.hb); RTM.hb = null; clearTimeout(RTM.timer); RTM.timer = null; }
+function rtDrop() { rtClear(); const w = RTM.ws; RTM.ws = null; if (w) { w.onopen = w.onmessage = w.onerror = w.onclose = null; try { w.close(); } catch (e) {} } }
+function rtRetry() {
+  rtDrop(); if (!RTM.want) { rtSet('off'); return; }
+  rtSet('retry'); const d = Math.min(60000, 2000 * Math.pow(2, RTM.retry++)) * (0.75 + Math.random() * 0.5);
+  RTM.timer = setTimeout(rtConnect, d);
+}
+function rtConnect() {
+  RTM.timer = null; if (!RTM.want || !enabled() || typeof WebSocket === 'undefined' || C.REALTIME === false) { rtSet('off'); return; }
+  const tok = RTM.getTok && RTM.getTok(); if (!tok) { rtSet('off'); return; }
+  rtDrop(); rtSet('connecting');
+  let w; try { w = new WebSocket(C.SUPABASE_URL.replace(/^https:/, 'wss:') + '/realtime/v1/websocket?apikey=' + encodeURIComponent(C.SUPABASE_KEY) + '&vsn=1.0.0'); } catch (e) { rtRetry(); return; }
+  RTM.ws = w; RTM.hbOk = true;
+  w.onopen = () => {
+    RTM.joinRef = String(++RTM.ref); RTM.pushed = tok;
+    rtSend(rtTopic, 'phx_join', {config: {broadcast: {ack: false, self: false}, presence: {key: ''}, private_channel: false, postgres_changes: [{event: 'INSERT', schema: 'public', table: 'sync_events'}]}, access_token: tok}, RTM.joinRef);
+    RTM.hb = setInterval(() => {
+      if (!RTM.hbOk) { rtRetry(); return; }   // detak sebelumnya tidak dibalas: sambungan mati diam-diam
+      RTM.hbOk = false; rtSend('phoenix', 'heartbeat', {});
+      const t = RTM.getTok && RTM.getTok(); if (t && t !== RTM.pushed && jwtExp(t) > Date.now()) { RTM.pushed = t; rtSend(rtTopic, 'access_token', {access_token: t}); }   // token diperbarui di sisi server
+    }, 25000);
+  };
+  w.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (!m) return;
+    if (m.topic === 'phoenix' && m.event === 'phx_reply') { RTM.hbOk = true; return; }
+    if (m.topic !== rtTopic) return;
+    if (m.event === 'phx_reply' && m.ref === RTM.joinRef) {
+      if (m.payload && m.payload.status === 'ok') { RTM.retry = 0; RTM.hbOk = true; rtSet('on'); if (RTM.onSig) RTM.onSig({catchup: true}); } else rtRetry();
+      return;
+    }
+    if (m.event === 'postgres_changes') { const rec = m.payload && m.payload.data && m.payload.data.record; if (rec && RTM.onSig) RTM.onSig({kind: rec.kind, outlet_id: rec.outlet_id || null}); return; }
+    if (m.event === 'phx_error' || m.event === 'phx_close') rtRetry();
+  };
+  w.onerror = () => {};
+  w.onclose = () => { if (RTM.ws === w) rtRetry(); };
+}
+const realtime = {
+  start: (getToken, onSignal, onState) => { RTM.getTok = getToken; RTM.onSig = onSignal; RTM.onState = onState; if (RTM.want && RTM.ws) return; RTM.want = true; RTM.retry = 0; rtConnect(); },
+  stop: () => { RTM.want = false; rtDrop(); rtSet('off'); },
+  state: () => RTM.state
+};
+window.SBAPI = {enabled: enabled, call: call, realtime: realtime, outlet: () => outletId, setOutlet: id => { outletId = id; ls.set(LSK.outlet, id); }};
 })();

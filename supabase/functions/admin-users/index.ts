@@ -4,16 +4,20 @@
 // Deploy: supabase functions deploy admin-users   (SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY disediakan platform)
 // P1-6: npm: specifier (bukan CDN pihak ketiga saat runtime). Versi dipin.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
-import { ALL_ROLES, allowRoleChangeDespite, callerFrom, checkTarget, corsFor, deactivationProblem, isPrivilegedRole, rateExceeded, secretProblem } from "./authz.ts";
+import { ALL_ROLES, allowRoleChangeDespite, callerFrom, checkTarget, corsFor, deactivationProblem, isPrivilegedRole, originVerdict, pinMinFrom, rateExceeded, secretProblem } from "./authz.ts";
 
 const DOMAIN = "@users.duado.local";
 let cors: Record<string, string> = corsFor(null, Deno.env.get("ALLOWED_ORIGINS"));   // diperbarui per permintaan di Deno.serve
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+const PIN_MIN = pinMinFrom(Deno.env.get("PIN_MIN_LENGTH"));   // v2.5.2: bawaan 8 angka
 const OPS = ["supervisor", "kasir", "stok", "produksi"];
 
 
 Deno.serve(async (req) => {
   cors = corsFor(req.headers.get("Origin"), Deno.env.get("ALLOWED_ORIGINS"));
+  const ov = originVerdict(req.headers.get("Origin"), Deno.env.get("ALLOWED_ORIGINS"));
+  if (ov === "not_configured") return json({ message: "ALLOWED_ORIGINS belum diatur di Edge Function. Jalankan: supabase secrets set ALLOWED_ORIGINS=https://<akun>.github.io" }, 403);
+  if (ov === "forbidden") return json({ message: "Origin tidak diizinkan." }, 403);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ message: "Metode tidak didukung" }, 405);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
@@ -41,7 +45,7 @@ Deno.serve(async (req) => {
     const username = String(b.username ?? "").trim().toLowerCase();
     if (!/^[a-z0-9._-]{3,30}$/.test(username)) return json({ message: "Username 3-30 karakter: huruf kecil, angka, titik, strip." }, 400);
     const role = String(b.role ?? "");
-    const pp = secretProblem(String(b.pin ?? ""), isPrivilegedRole([role])); if (pp) return json({ message: pp }, 400);   // F8: Owner/Admin/Auditor = kata sandi >= 10 karakter
+    const pp = secretProblem(String(b.pin ?? ""), isPrivilegedRole([role]), PIN_MIN); if (pp) return json({ message: pp }, 400);   // F8: Owner/Admin/Auditor = kata sandi >= 10 karakter
     const outlets: string[] = Array.isArray(b.outlet_ids) ? b.outlet_ids : [];
     if (role === "owner" || !OPS.includes(role)) { if (!isOwner) return json({ message: "Hanya owner yang dapat membuat owner/admin/auditor." }, 403); }
     if (!isOwner && !outlets.every((o) => globalAdmin || adminOutlets.includes(o))) return json({ message: "Outlet di luar kewenangan Anda." }, 403);
@@ -70,7 +74,7 @@ Deno.serve(async (req) => {
     // sehingga aturan database (owner terakhir, admin hanya peran operasional di outlet-nya, audit) tetap berlaku. Auth dan database adalah
     // dua sistem; bila langkah sesudahnya gagal, respons menyebut apa yang sudah berlaku dan menyimpan ulang aman (semua langkah idempoten).
     // F8: jenis kredensial mengikuti peran SESUDAH perubahan (peran baru bila diganti, kalau tidak peran sekarang).
-    if (b.pin) { const pp0 = secretProblem(String(b.pin), isPrivilegedRole(wantRole ? [wantRole] : target.map((m) => m.role))); if (pp0) return json({ message: pp0 }, 400); }   // validasi sebelum ada yang berubah
+    if (b.pin) { const pp0 = secretProblem(String(b.pin), isPrivilegedRole(wantRole ? [wantRole] : target.map((m) => m.role)), PIN_MIN); if (pp0) return json({ message: pp0 }, 400); }   // validasi sebelum ada yang berubah
     // F5: semua pemeriksaan penonaktifan SEBELUM peran, Auth, atau profil disentuh. Sebelumnya ban_duration sudah terpasang di Auth ketika
     // pemeriksaan "akun sendiri / owner terakhir" menolak, sehingga owner tunggal terkunci meski API membalas galat.
     if (b.status === "inactive") {

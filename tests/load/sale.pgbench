@@ -1,0 +1,19 @@
+-- Satu penjualan seperti yang dikirim PostgREST: transaksi, peran authenticated, klaim JWT, lalu rpc_sale_create (2 baris keranjang).
+-- Variabel (-D): ncash = jumlah kasir aktif, percash = kasir per outlet, nvar = jumlah varian, run = id putaran (agar request_id unik), seq mulai 0.
+-- Pemetaan: klien -> kasir (client_id % ncash) -> outlet (kasir / percash + 1).
+\set u :client_id % :ncash
+\set o :u / :percash + 1
+\set seq :seq + 1
+\set v1 random_zipfian(1, :nvar, 1.1)
+\set v2 random(1, :nvar)
+\set q1 random(1, 3)
+\set q2 random(1, 2)
+\set rid :run * 1000000000 + :client_id * 1000000 + :seq
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', md5('cashier-' || :u)::uuid::text, true);
+select public.rpc_sale_create(jsonb_build_object(
+  'outlet_id', md5('outlet-' || :o)::uuid, 'request_id', 'ld-' || :rid, 'channel_id', md5('channel')::uuid, 'metode_bayar', 'tunai',
+  'items', jsonb_build_array(jsonb_build_object('variant_id', md5('variant-' || :v1)::uuid, 'qty', :q1),
+                             jsonb_build_object('variant_id', md5('variant-' || :v2)::uuid, 'qty', :q2)))) ->> 'review' as review;
+commit;

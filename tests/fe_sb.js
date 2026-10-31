@@ -76,6 +76,7 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   const rt = {}, hh = (url, opt, body) => {
     const m = url.match(/rpc_([a-z_]+)/); if (m) { rt[m[1]] = body.p; }
     if (/rpc_dashboard/.test(url)) return {status: 200, body: {period: 'hari', cur: {omzet: 0}}};
+    if (/rpc_report_ops/.test(url)) return {status: 200, body: {type: body.p.type, title: 'O', columns: [], fmt: [], rows: [], summary: []}};
     if (/rpc_report_legacy/.test(url)) return {status: 200, body: {type: body.p.type, title: 'T', columns: [], fmt: [], rows: [], summary: []}};
     if (/rpc_production_list/.test(url)) return {status: 200, body: []};
     if (/rpc_recipe_save/.test(url)) return {status: 200, body: {recipe: {id: 'r-1', nama: 'Resep A'}}};
@@ -92,6 +93,12 @@ const boot = role => ({user: {uid: 'u1', nama: 'Tia', username: 'tia'}, outlets:
   ok(rt.dashboard.period === 'bulan' && rt.dashboard.outlet_id === 'o1', 'dashboard.get => rpc_dashboard + outlet aktif');
   await q.S.call('report.get', {type: 'penjualan', from: '2026-10-01', to: '2026-10-28'}, good);
   ok(rt.report_legacy.type === 'penjualan' && rt.report_legacy.from === '2026-10-01' && rt.report_legacy.outlet_id === 'o1', 'report.get => rpc_report_legacy dengan jenis, rentang, outlet');
+  for (const ty of ['stok_minimum', 'lead_transfer', 'durasi_shift']) {
+    delete rt.report_ops; await q.S.call('report.get', {type: ty, from: '2026-10-01', to: '2026-10-30'}, good);
+    ok(rt.report_ops && rt.report_ops.type === ty && rt.report_ops.outlet_id === 'o1' && rt.report_ops.from === '2026-10-01' && rt.report_legacy.type === 'penjualan', '0027: report.get(' + ty + ') => rpc_report_ops dengan outlet aktif (tidak menyentuh report_legacy)');
+  }
+  rt.report_legacy = null; await q.S.call('report.get', {type: 'selisih_kas', from: '2026-10-01', to: '2026-10-30'}, good);
+  ok(rt.report_legacy && rt.report_legacy.type === 'selisih_kas', '0027: jenis lama tetap lewat rpc_report_legacy');
   await q.S.call('production.list', {}, good);
   ok(rt.production_list.outlet_id === 'o1', 'production.list => rpc_production_list + outlet aktif');
   const rs = await q.S.call('recipe.save', {variant_id: 'v1', nama: 'Resep A', hasil_standar: 10, jenis: 'batch', tenaga_kerja: 0, items: [{material_id: 'm1', qty: 2}]}, good);

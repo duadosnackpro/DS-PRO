@@ -42,9 +42,21 @@ test("owner boleh mengelola siapa pun yang punya keanggotaan aktif", () => {
 });
 
 import { corsFor, rateExceeded, allowRoleChangeDespite, RATE_PER_MINUTE } from "./authz.ts";
-test("CORS: tanpa ALLOWED_ORIGINS => * (perilaku lama)", () => {
-  assert.equal(corsFor("https://x.github.io", undefined)["Access-Control-Allow-Origin"], "*");
-  assert.equal(corsFor(null, "")["Access-Control-Allow-Origin"], "*");
+test("CORS: tanpa ALLOWED_ORIGINS => tidak ada origin yang diizinkan (bukan *)", () => {
+  assert.equal("Access-Control-Allow-Origin" in corsFor("https://x.github.io", undefined), false);
+  assert.equal("Access-Control-Allow-Origin" in corsFor(null, ""), false);
+});
+import { originVerdict, pinMinFrom } from "./authz.ts";
+test("origin: kosong => ditolak bila ada header Origin; tanpa Origin (server ke server) lolos; origin lain ditolak", () => {
+  assert.equal(originVerdict("https://x.github.io", undefined), "not_configured");
+  assert.equal(originVerdict("https://x.github.io", " , "), "not_configured");
+  assert.equal(originVerdict(null, undefined), "ok");
+  assert.equal(originVerdict("https://akun.github.io/", "https://akun.github.io"), "ok");
+  assert.equal(originVerdict("https://evil.example", "https://akun.github.io"), "forbidden");
+});
+test("PIN_MIN_LENGTH: bawaan 8; nilai valid 6-10 diterima; sisanya kembali ke 8", () => {
+  assert.equal(pinMinFrom(undefined), 8); assert.equal(pinMinFrom("6"), 6); assert.equal(pinMinFrom("10"), 10);
+  for (const v of ["5", "11", "abc", "", "7.5"]) assert.equal(pinMinFrom(v), 8);
 });
 test("CORS: origin yang diizinkan dipantulkan, yang lain tidak mendapat header allow-origin", () => {
   const allow = "https://akun.github.io, https://staging.example.com/";
@@ -86,8 +98,10 @@ test("F8: Owner/Admin/Auditor wajib kata sandi >= 10 karakter (huruf+angka); per
   assert.match(secretProblem("aaaaaaaaaa", true)!, /huruf dan angka|sama semua/);
   assert.equal(secretProblem("Dapur-Pedas-2026", true), null);
   assert.equal(secretProblem("kopi7manis9", true), null);
-  assert.match(secretProblem("Dapur-Pedas-2026", false)!, /6-10 angka/);
-  assert.equal(secretProblem("739158", false), null);
-  assert.match(secretProblem("123456", false)!, /berurutan/);
-  assert.match(secretProblem("111111", false)!, /sama semua/);
+  assert.match(secretProblem("Dapur-Pedas-2026", false)!, /8-10 angka/);
+  assert.equal(secretProblem("73915842", false), null);
+  assert.match(secretProblem("12345678", false)!, /berurutan/);
+  assert.match(secretProblem("11111111", false)!, /sama semua/);
+  assert.match(secretProblem("739158", false)!, /8-10 angka/);   // v2.5.2: PIN 6 angka tidak lagi diterima untuk akun baru
+  assert.equal(secretProblem("739158", false, 6), null);          // ...kecuali PIN_MIN_LENGTH diturunkan secara sadar
 });

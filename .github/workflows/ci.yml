@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -29,6 +29,10 @@ jobs:
         run: npm run test:release
       - name: Uji adapter Supabase
         run: npm run test:fe
+      - name: Uji klien Realtime (WebSocket palsu)
+        run: npm run test:rt
+      - name: Uji printer Bluetooth
+        run: npm run test:bt
       - name: Uji logika kewenangan Edge Function
         run: npm run test:edge
   db:
@@ -43,7 +47,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Migrasi dan tes database (multi-outlet, RLS, atomik, idempotensi)
         env:
           PLAIN_PG: '1'

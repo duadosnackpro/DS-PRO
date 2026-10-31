@@ -1,6 +1,6 @@
 /* ---------- API dan sinkronisasi ---------- */
 let pending = 0;
-const QUIET = {ping: 1, 'stock.get': 1, bootstrap: 1, login: 1, logout: 1}; // aksi yang tidak memicu pemeriksaan versi (mereka sendiri yang menyinkronkan)
+const QUIET = {ping: 1, 'stock.get': 1, bootstrap: 1, login: 1, logout: 1, 'client.log': 1, 'client.errors': 1}; // aksi yang tidak memicu pemeriksaan versi (mereka sendiri yang menyinkronkan)
 let staleT = null, seenV = ''; // seenV: versi terbaru yang pernah terlihat di jawaban server
 function staleSoon() { if (staleT) return; staleT = setTimeout(() => { staleT = null; if (S.data && dverKey() !== seenV) checkUpdates(true); }, 400); } // bila saat timer berjalan data sudah sama dengan versi terakhir yang terlihat, tak perlu ping
 function netState() { document.body.classList.toggle('net', pending > 0); badge(); }
@@ -24,7 +24,7 @@ function applyQueueStock() {
   S.queue.forEach(q => { if (q.status === 'pending' && sameOutlet(q)) q.payload.items.forEach(it => { const v = vById(it.variant_id); if (v) v.stok = (Number(v.stok) || 0) - it.qty; }); });
 }
 async function loadData() { S.data = await api('bootstrap'); applyQueueStock(); S.lastSync = lastChk = Date.now(); // muat penuh = sekaligus pemeriksaan versi, ping berikutnya tidak perlu segera
-  LS.set('lastsync', S.lastSync); LS.set('data', S.data); if (S.cat !== 'Semua' && !S.data.products.some(p => p.kategori === S.cat)) S.cat = 'Semua'; setTimeout(fotoWarm, 1500); }
+  LS.set('lastsync', S.lastSync); LS.set('data', S.data); rtEnsure(); bootOnce(); if (S.cat !== 'Semua' && !S.data.products.some(p => p.kategori === S.cat)) S.cat = 'Semua'; setTimeout(fotoWarm, 1500); }
 async function refreshStock() { // menyegarkan stok produk jadi dari server; false bila server belum mengenal stock.get (klien memuat penuh)
   let r; try { r = await api('stock.get', {}, {silent: true}); } catch (e) { if (e.server && /Aksi tidak dikenal/.test(e.message)) return false; throw e; }
   S.data.variants.forEach(v => { if (r.stok[v.id] !== undefined) v.stok = r.stok[v.id]; });
@@ -79,6 +79,22 @@ async function vload(action, payload, paint, opt) {
     paint(v, false);
   } catch (e) { if (e.auth) { softLogout(); return; } if (opt.fail && !shown) opt.fail(e); }
 }
+/* ---------- Realtime + polling cadangan (v2.5.2) ----------
+   Sinyal Realtime (tabel sync_events, migrasi 0026) hanya MEMICU pemeriksaan versi yang sudah ada (verSync); datanya tetap dibaca lewat RPC/RLS seperti biasa.
+   Bila Realtime tidak tersambung (offline, blokir jaringan, paket gratis habis kuota) aplikasi tetap tersinkron lewat polling ringan (lihat pollTick di 14-mulai.js). */
+S.rt = 'off'; let rtSigT = null;
+function rtSignal(sig) {
+  if (!S.token || !S.data) return;
+  if (sig && sig.outlet_id && S.data.outlet && sig.outlet_id !== S.data.outlet.id) return;   // sinyal outlet lain (peran lintas outlet): abaikan
+  clearTimeout(rtSigT); rtSigT = setTimeout(() => checkUpdates(true), sig && sig.catchup ? 0 : 800);   // gabungkan sinyal beruntun; tersambung ulang = kejar yang terlewat
+}
+function rtEnsure() {
+  const R = window.SBAPI && window.SBAPI.realtime; if (!R || !S.token || !window.SBAPI.enabled() || /** @type {any} */ (C).REALTIME === false) return;
+  R.start(() => S.token, rtSignal, st => { S.rt = st; if (st === 'retry') remoteLog('rt', new Error('Realtime terputus'), 'rt'); });
+}
+function rtStop() { const R = window.SBAPI && window.SBAPI.realtime; if (R) R.stop(); S.rt = 'off'; }
+const pollEvery = () => S.rt === 'on' ? 180000 : 45000;   // Realtime tersambung: hanya jaring pengaman 3 menit; tidak: 45 detik
+function pollTick() { if (!S.token || !S.data || document.hidden || navigator.onLine === false) return; if (Date.now() - lastChk >= pollEvery()) checkUpdates(true); }
 async function checkUpdates(force) {
   const r = await verSync(force ? 0 : 30000); if (!r) return;
   if (r === 'cat') toast('Data terbaru dimuat');
@@ -126,8 +142,8 @@ async function flush() {
     }
   } finally { flushing = false; S.queue.forEach(q => { if (q.state === 'sending') q.state = 'waiting'; }); LS.set('queue', S.queue); LS.set('data', S.data); badge(); if (S.tab === 'riwayat' && $('#sheet').hidden) vRiwayat(); scheduleFlush(); notifyConflicts(); }
 }
-function softLogout(msg) { S.rhist = null; VC = {}; S.token = null; LS.del('token'); renderLogin(msg || 'Sesi berakhir, silakan masuk lagi.'); }
-function logout() { if (S.token && window.SBAPI && window.SBAPI.enabled()) { try { window.SBAPI.call('logout', {}, S.token); } catch (e) {} } S.rhist = null; VC = {}; S.token = null; S.data = null; S.cart = []; LS.del('token'); LS.del('data'); LS.del('cart');
+function softLogout(msg) { rtStop(); S.rhist = null; VC = {}; S.token = null; LS.del('token'); renderLogin(msg || 'Sesi berakhir, silakan masuk lagi.'); }
+function logout() { rtStop(); if (S.token && window.SBAPI && window.SBAPI.enabled()) { try { window.SBAPI.call('logout', {}, S.token); } catch (e) {} } S.rhist = null; VC = {}; S.token = null; S.data = null; S.cart = []; LS.del('token'); LS.del('data'); LS.del('cart');
   /* P1-4: "perangkat bersama" mengosongkan preferensi dan nama pengguna terakhir juga. Antrean transaksi TIDAK dihapus (uang pelanggan mungkin sudah diterima). */
   if (LS.get('shared', false)) ['lastUser', 'ownerUser', 'ch', 'metode', 'hideOut'].forEach(k => LS.del(k));
   renderLogin(); }

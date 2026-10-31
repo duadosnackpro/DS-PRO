@@ -346,3 +346,8 @@ pre.rc{background:#fff;border-radius:12px;padding:12px;font:12px/1.35 ui-monospa
 
 .linkbtn{background:none;border:0;color:inherit;font:inherit;font-size:12px;text-decoration:underline;min-height:44px;padding:0 8px;cursor:pointer}
 .btbox:empty{display:none}.btbox{margin-bottom:var(--s2)}.btbox .badge{margin-bottom:var(--s2)}.btbox .seg{margin-bottom:var(--s2)}
+
+/* Ikon peringatan Beranda (menggantikan banner) */
+.rcaprow{display:flex;align-items:center;justify-content:space-between;gap:var(--s2)}.rcaprow .rcap{flex:1;margin-right:0}
+.wbell{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;border:1.5px solid #B45309;background:var(--warn-bg);color:var(--warn-ink);cursor:pointer;padding:0}
+.wbell b{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:10px;background:#B91C1C;color:#fff;font:700 12px/20px var(--body,system-ui);text-align:center;padding:0 5px}

@@ -141,7 +141,7 @@ function closeSheet() { if (S.opin) { const r = S.opin.res; S.opin = null; r(nul
 
 /* ---------- API dan sinkronisasi ---------- */
 let pending = 0;
-const QUIET = {ping: 1, 'stock.get': 1, bootstrap: 1, login: 1, logout: 1}; // aksi yang tidak memicu pemeriksaan versi (mereka sendiri yang menyinkronkan)
+const QUIET = {ping: 1, 'stock.get': 1, bootstrap: 1, login: 1, logout: 1, 'client.log': 1, 'client.errors': 1}; // aksi yang tidak memicu pemeriksaan versi (mereka sendiri yang menyinkronkan)
 let staleT = null, seenV = ''; // seenV: versi terbaru yang pernah terlihat di jawaban server
 function staleSoon() { if (staleT) return; staleT = setTimeout(() => { staleT = null; if (S.data && dverKey() !== seenV) checkUpdates(true); }, 400); } // bila saat timer berjalan data sudah sama dengan versi terakhir yang terlihat, tak perlu ping
 function netState() { document.body.classList.toggle('net', pending > 0); badge(); }
@@ -165,7 +165,7 @@ function applyQueueStock() {
   S.queue.forEach(q => { if (q.status === 'pending' && sameOutlet(q)) q.payload.items.forEach(it => { const v = vById(it.variant_id); if (v) v.stok = (Number(v.stok) || 0) - it.qty; }); });
 }
 async function loadData() { S.data = await api('bootstrap'); applyQueueStock(); S.lastSync = lastChk = Date.now(); // muat penuh = sekaligus pemeriksaan versi, ping berikutnya tidak perlu segera
-  LS.set('lastsync', S.lastSync); LS.set('data', S.data); if (S.cat !== 'Semua' && !S.data.products.some(p => p.kategori === S.cat)) S.cat = 'Semua'; setTimeout(fotoWarm, 1500); }
+  LS.set('lastsync', S.lastSync); LS.set('data', S.data); rtEnsure(); bootOnce(); if (S.cat !== 'Semua' && !S.data.products.some(p => p.kategori === S.cat)) S.cat = 'Semua'; setTimeout(fotoWarm, 1500); }
 async function refreshStock() { // menyegarkan stok produk jadi dari server; false bila server belum mengenal stock.get (klien memuat penuh)
   let r; try { r = await api('stock.get', {}, {silent: true}); } catch (e) { if (e.server && /Aksi tidak dikenal/.test(e.message)) return false; throw e; }
   S.data.variants.forEach(v => { if (r.stok[v.id] !== undefined) v.stok = r.stok[v.id]; });
@@ -220,6 +220,22 @@ async function vload(action, payload, paint, opt) {
     paint(v, false);
   } catch (e) { if (e.auth) { softLogout(); return; } if (opt.fail && !shown) opt.fail(e); }
 }
+/* ---------- Realtime + polling cadangan (v2.5.2) ----------
+   Sinyal Realtime (tabel sync_events, migrasi 0026) hanya MEMICU pemeriksaan versi yang sudah ada (verSync); datanya tetap dibaca lewat RPC/RLS seperti biasa.
+   Bila Realtime tidak tersambung (offline, blokir jaringan, paket gratis habis kuota) aplikasi tetap tersinkron lewat polling ringan (lihat pollTick di 14-mulai.js). */
+S.rt = 'off'; let rtSigT = null;
+function rtSignal(sig) {
+  if (!S.token || !S.data) return;
+  if (sig && sig.outlet_id && S.data.outlet && sig.outlet_id !== S.data.outlet.id) return;   // sinyal outlet lain (peran lintas outlet): abaikan
+  clearTimeout(rtSigT); rtSigT = setTimeout(() => checkUpdates(true), sig && sig.catchup ? 0 : 800);   // gabungkan sinyal beruntun; tersambung ulang = kejar yang terlewat
+}
+function rtEnsure() {
+  const R = window.SBAPI && window.SBAPI.realtime; if (!R || !S.token || !window.SBAPI.enabled() || /** @type {any} */ (C).REALTIME === false) return;
+  R.start(() => S.token, rtSignal, st => { S.rt = st; if (st === 'retry') remoteLog('rt', new Error('Realtime terputus'), 'rt'); });
+}
+function rtStop() { const R = window.SBAPI && window.SBAPI.realtime; if (R) R.stop(); S.rt = 'off'; }
+const pollEvery = () => S.rt === 'on' ? 180000 : 45000;   // Realtime tersambung: hanya jaring pengaman 3 menit; tidak: 45 detik
+function pollTick() { if (!S.token || !S.data || document.hidden || navigator.onLine === false) return; if (Date.now() - lastChk >= pollEvery()) checkUpdates(true); }
 async function checkUpdates(force) {
   const r = await verSync(force ? 0 : 30000); if (!r) return;
   if (r === 'cat') toast('Data terbaru dimuat');
@@ -267,8 +283,8 @@ async function flush() {
     }
   } finally { flushing = false; S.queue.forEach(q => { if (q.state === 'sending') q.state = 'waiting'; }); LS.set('queue', S.queue); LS.set('data', S.data); badge(); if (S.tab === 'riwayat' && $('#sheet').hidden) vRiwayat(); scheduleFlush(); notifyConflicts(); }
 }
-function softLogout(msg) { S.rhist = null; VC = {}; S.token = null; LS.del('token'); renderLogin(msg || 'Sesi berakhir, silakan masuk lagi.'); }
-function logout() { if (S.token && window.SBAPI && window.SBAPI.enabled()) { try { window.SBAPI.call('logout', {}, S.token); } catch (e) {} } S.rhist = null; VC = {}; S.token = null; S.data = null; S.cart = []; LS.del('token'); LS.del('data'); LS.del('cart');
+function softLogout(msg) { rtStop(); S.rhist = null; VC = {}; S.token = null; LS.del('token'); renderLogin(msg || 'Sesi berakhir, silakan masuk lagi.'); }
+function logout() { rtStop(); if (S.token && window.SBAPI && window.SBAPI.enabled()) { try { window.SBAPI.call('logout', {}, S.token); } catch (e) {} } S.rhist = null; VC = {}; S.token = null; S.data = null; S.cart = []; LS.del('token'); LS.del('data'); LS.del('cart');
   /* P1-4: "perangkat bersama" mengosongkan preferensi dan nama pengguna terakhir juga. Antrean transaksi TIDAK dihapus (uang pelanggan mungkin sudah diterima). */
   if (LS.get('shared', false)) ['lastUser', 'ownerUser', 'ch', 'metode', 'hideOut'].forEach(k => LS.del(k));
   renderLogin(); }
@@ -329,7 +345,27 @@ IC.install = '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline poi
 const buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} };
 /* Galat milik ekstensi browser (chrome-extension://, moz-extension://, dan sejenisnya) bukan galat aplikasi: tidak dicatat */
 const foreign = e => { const t = String((e && e.stack) || '') + ' ' + String((e && e.filename) || ''); return /(chrome|moz|safari-web|ms-browser)-extension:\/\//.test(t) && t.indexOf(location.origin) < 0; };
-function logErr(e, ctx) { if (foreign(e)) return; try { const l = LS.get('errlog', []); l.unshift({t: Date.now(), c: ctx || '', m: String((e && e.message) || e), s: String((e && e.stack) || '').split('\n').slice(0, 3).join(' | ')}); LS.set('errlog', l.slice(0, 20)); } catch (x) {} }
+/* v2.5.2: galat tak tertangani juga dilaporkan ke server (RPC client_error_log, migrasi 0026) sebagai dasar KPI error rate per sesi. Hanya pesan, 3 baris stack, versi aplikasi dan status online.
+   Yang dihitung sebagai galat sesi: 'error' (window.onerror dan kegagalan render/struk/bayar) dan 'promise' (penolakan tak tertangani). Galat perangkat keras (printer, foto) dan penolakan
+   bisnis dari server (e.server) atau jaringan putus TIDAK dihitung, supaya angkanya tidak membengkak saat offline. Pelaporan gagal tidak pernah memunculkan galat baru. */
+const SESS = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12), RQ = [], rqSeen = {}; let rqT = null, bootSent = false;
+const REMOTE_CTX = {error: 'error', promise: 'promise', render: 'error', struk: 'error', bayar: 'error'};
+function remoteLog(kind, e, ctx) {
+  try {
+    const msg = kind === 'boot' ? 'boot' : String((e && e.message) || e || '').slice(0, 300), k = kind + '|' + msg, now = Date.now();
+    if (kind !== 'boot' && rqSeen[k] && now - rqSeen[k] < 60000) return;   // pesan yang sama tidak dikirim berulang dalam 60 dtk
+    rqSeen[k] = now; if (RQ.length >= 20) RQ.shift();
+    RQ.push({kind: kind, message: msg, source: String(ctx || '').slice(0, 120), stack: kind === 'boot' ? '' : String((e && e.stack) || '').split('\n').slice(0, 3).join(' | '), session_id: SESS, app_version: String((window.CONFIG || {}).VERSION || ''), online: navigator.onLine !== false});
+    clearTimeout(rqT); rqT = setTimeout(remoteFlush, 2500);
+  } catch (x) {}
+}
+async function remoteFlush() {
+  if (!RQ.length || !S.token || !S.data || navigator.onLine === false) return;
+  const b = RQ.splice(0, 20);
+  try { await api('client.log', {events: b}, {silent: true}); } catch (e) { if (!(e && e.server) && !(e && e.auth)) RQ.unshift.apply(RQ, b.slice(0, 20 - RQ.length)); }   // jaringan putus: simpan lagi; galat server (mis. skema lama) dibuang
+}
+function bootOnce() { if (bootSent) return; bootSent = true; remoteLog('boot'); }
+function logErr(e, ctx) { if (foreign(e)) return; try { if (REMOTE_CTX[ctx || ''] && !(ctx === 'promise' && e && (e.server || e.auth || /Tidak ada koneksi/.test(String(e.message))))) remoteLog(REMOTE_CTX[ctx], e, ctx); } catch (x) {} try { const l = LS.get('errlog', []); l.unshift({t: Date.now(), c: ctx || '', m: String((e && e.message) || e), s: String((e && e.stack) || '').split('\n').slice(0, 3).join(' | ')}); LS.set('errlog', l.slice(0, 20)); } catch (x) {} }
 window.addEventListener('error', ev => { if (/-extension:\/\//.test(String(ev.filename || ''))) return; logErr(ev.error || ev.message, 'error'); });
 window.addEventListener('unhandledrejection', ev => logErr(ev.reason, 'promise'));
 /* struk: satu sumber untuk layar, WhatsApp, dan printer. receiptDoc() menyusun baris struk (teks, tebal, ukuran, rata); tiap keluaran hanya menerjemahkannya.
@@ -368,20 +404,21 @@ function receiptDoc(rc, o) { // o: {w: lebar, rich: ukuran ganda + QR bawaan pri
   if (!o.logo) { const nm = String(cfg('nama_usaha') || 'Duado Snack').toUpperCase(), z = rich && nm.length * 2 <= w; wrapWords(nm, z ? w >> 1 : w).forEach(x => add(x, {a: 'c', b: true, z: z ? 2 : 1})); }
   if (cfgOn('header_aktif', true)) noteLines(cfg('header_struk'), w).forEach(x => D.push(x));
   hr();
-  const nomor = S.nomor[rc.rid] || '(menunggu sinkron)', kasir = String(rc.kasir || ''), kv = (k, v) => add(lr(k, String(v).slice(0, w - k.length - 1), w));
-  kv('No', nomor); kv('Waktu', dmy(rc.time) + ' ' + hms(rc.time).slice(0, 5)); if (kasir) kv('Kasir', kasir); kv('Via', rc.ch);
+  const nomor = S.nomor[rc.rid] || '(menunggu sinkron)', kasir = String(rc.kasir || ''), kv = (k, v, lw, n) => ljust(k, lw) + ': ' + String(v).slice(0, n);
+  if (wide) { add(ljust(kv('No', nomor, 8, 18), 28) + kv('Waktu', hms(rc.time), 6, 12)); add(ljust(kv('Tanggal', dmy(rc.time), 8, 18), 28) + kv('Kasir', kasir, 6, 12)); add(kv('Via', rc.ch, 8, 38)); }
+  else { add(kv('No', nomor, 6, 24)); add(kv('Waktu', dmy(rc.time) + ' ' + hms(rc.time), 6, 24)); if (kasir) add(kv('Kasir', kasir, 6, 24)); add(kv('Via', rc.ch, 6, 24)); }
   hr();
   if (wide) { // tabel: ITEM | QTY | HARGA | TOTAL (satu baris per item; nama panjang turun ke baris berikutnya)
     const Q = 4, H = 10, TT = 11, N = w - Q - H - TT - 3;
     add(ljust('ITEM', N) + ' ' + rjust('QTY', Q) + ' ' + rjust('HARGA', H) + ' ' + rjust('TOTAL', TT), {b: true}); hr();
     rc.lines.forEach(l => wrapWords(l.n, N).forEach((x, i) => add(i ? x : ljust(x, N) + ' ' + rjust(String(l.q), Q) + ' ' + rjust(num(l.h), H) + ' ' + rjust(num(l.q * l.h), TT))));
   } else rc.lines.forEach(l => { wrapWords(l.n, w).forEach(x => add(x)); add(lr('  ' + l.q + ' x ' + num(l.h), num(l.q * l.h), w)); });
-  const ind = wide ? 20 : 0, pad = ' '.repeat(ind), S2 = (a, b, x) => add(pad + lr(a, b, w - ind), x);
+  const ind = wide ? 20 : 0, pad = ' '.repeat(ind), S2 = (a, b) => add(pad + lr(a, b, w - ind));
   hr(); S2('Subtotal', num(rc.sub)); if (rc.dis) S2('Diskon', '-' + num(rc.dis)); if (rc.ppn) S2(T(cfg('ppn_inklusif')) ? 'PPN (incl.)' : 'PPN', num(rc.ppn));
-  S2('TOTAL', 'Rp ' + num(rc.total), {b: true});
-  add(''); S2(pay === 'qris' ? 'QRIS' : pay.charAt(0).toUpperCase() + pay.slice(1), num(rc.terima)); if (pay === 'tunai') S2('Kembalian', num(rc.kembali));
+  hr(); const tz = rich && 'TOTAL'.length + 1 + num(rc.total).length <= w >> 1; add(lr('TOTAL', num(rc.total), tz ? w >> 1 : w), {b: true, z: tz ? 2 : 1});
+  hr(); S2(pay === 'qris' ? 'QRIS' : pay.charAt(0).toUpperCase() + pay.slice(1), num(rc.terima)); if (pay === 'tunai') S2('Kembalian', num(rc.kembali));
   const ft = cfgOn('footer_aktif', true) ? noteLines(cfg('footer_struk'), w) : [], qr = String(cfg('qr_struk') || '').trim();
-  if (ft.length || qr) add('');
+  if (ft.length || qr) hr();
   ft.forEach(x => D.push(x));
   if (qr) { if (rich) D.push({qr: qr}); else wrapWords(qr, w).forEach(x => add(x, {a: 'c'})); }
   return D;
@@ -1419,7 +1456,15 @@ function vMenu() {
     (can('takeover') ? '<div class="grp"><h3>Hati-hati</h3>' + mi('go_reset', 'trash', 'Reset data transaksi', 'Hapus penjualan, kas, dan riwayat stok outlet ' + esc(S.data.outlet ? S.data.outlet.code : 'ini'), 'danger') + '</div>' : '') +
     '<div class="grp grp-out">' + mi('logout', 'out', 'Keluar', esc(u.nama), 'danger') + '</div>';
 }
+function diagHealth() {
+  if (['owner', 'admin', 'auditor'].indexOf(S.data.user.role) < 0) return;
+  api('client.errors', {days: 7}, {silent: true}).then(r => { const el = $('#derr'); if (!el) return;
+    el.innerHTML = '<div class="kv"><span>Sesi 7 hari</span><span>' + esc(String(r.sesi_total)) + '</span></div><div class="kv"><span>Sesi dengan galat</span><span>' + esc(String(r.sesi_error)) + ' (' + esc(String(r.error_rate_persen)) + '%, target < 0,1%)</span></div>' +
+      (r.teratas || []).slice(0, 5).map(x => '<div class="muted" style="margin-top:4px">' + esc(String(x.jumlah)) + '× ' + esc(String(x.pesan)) + '</div>').join('');
+  }).catch(e => { const el = $('#derr'); if (el) el.textContent = e.server && /belum dipindahkan|Could not find|404/.test(e.message) ? 'Ringkasan belum tersedia (migrasi 0026 belum terpasang).' : 'Ringkasan tidak dapat dimuat: ' + e.message; });
+}
 function vDiag() {
+  setTimeout(diagHealth, 0);
   setTimeout(() => { // bandingkan versi config.js dengan versi cache sw.js: beda = unggahan web/ tidak lengkap, sehingga banner pembaruan tidak akan muncul
     const el = $('#dver'); if (!el || !window.caches) return;
     caches.keys().then(ks => {
@@ -1432,6 +1477,7 @@ function vDiag() {
   $('#main').innerHTML = '<button class="chip" data-act="tab" data-t="menu">← Menu</button><div class="card-s"><h3>Info perangkat</h3>' + kv('Versi aplikasi', esc(C.VERSION || '-')) + '<div id="dver"></div>' + kv('Versi data', esc(dverKey() || '-')) + kv('Layar tersimpan (cache)', Object.keys(VC).length + ' hasil') + kv('Mode', standalone ? 'Terpasang (layar utama)' : 'Browser') + kv('Koneksi', navigator.onLine ? 'Online' : 'Offline') +
     kv('Android (untuk RawBT)', isAndroid() ? 'Ya' : 'Tidak') + kv('Fitur Bagikan', navigator.share ? 'Tersedia' : 'Tidak tersedia') + kv('Antrean transaksi', q.filter(x => x.status === 'pending').length + ' menunggu, ' + q.filter(x => x.status === 'review').length + ' perlu ditinjau') + kv('Lebar struk', rcWidth() + ' karakter') + '</div>' +
     '<div class="card-s"><h3>Uji koneksi dan kecepatan server</h3><button class="btn sec" data-act="dping">Uji koneksi</button><div id="dres" class="muted" style="margin-top:6px"></div></div>' +
+    '<div class="card-s"><h3>Sinkronisasi dan kesehatan aplikasi</h3>' + kv('Sinkronisasi', S.rt === 'on' ? 'Realtime tersambung' : S.rt === 'off' ? 'Polling 45 dtk (Realtime nonaktif)' : 'Polling 45 dtk (Realtime: ' + esc(S.rt) + ')') + (['owner', 'admin', 'auditor'].indexOf(S.data.user.role) >= 0 ? '<div id="derr" class="muted">Memuat ringkasan galat…</div>' : '') + '</div>' +
     btDiagCard() +
     '<div class="card-s"><h3>Uji struk</h3><p class="muted">Memeriksa WhatsApp dan printer tanpa membuat transaksi.</p><div class="row2"><button class="btn wa" data-act="dtwa">Uji WhatsApp</button><button class="btn dark" data-act="dtbt">Uji cetak Bluetooth</button></div><button class="btn sec" data-act="dtshare">Uji Bagikan</button>' +
     '<p class="muted">Jalur RawBT (Android): pasang RawBT dari Play Store, pasangkan printer di dalam RawBT, lalu coba cetak dari RawBT dulu. Jalur BLE langsung: pilih printer BLE sekali di kartu Printer Bluetooth di atas.</p></div>' +
@@ -1513,12 +1559,12 @@ async function vUsers() {
   await vload('user.list', undefined, users => { S.users = users; if (!$('#ul')) return; $('#ul').innerHTML = S.users.map(u => '<button class="li" style="width:100%;border:0;font:inherit;text-align:left;margin-top:8px" data-act="uedit" data-id="' + esc(u.id) + '"><span><b>' + esc(u.nama) + '</b> <span class="muted">@' + esc(u.username) + '</span></span><span class="urow-b"><span class="badge role">' + esc(roleName(u.role)) + '</span>' + (String(u.aktif) === 'false' ? '<span class="tag red">Nonaktif</span>' : '') + (u.terkunci ? '<span class="tag red">Terkunci</span>' : '') + '</span></button>').join(''); },
     {fail: e => { if ($('#ul')) $('#ul').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; }});
 }
-/* F8: Owner/Admin/Auditor memakai kata sandi (min. 10 karakter, huruf+angka); peran operasional memakai PIN 6-10 angka. Aturan yang sama ditegakkan Edge Function admin-users. */
+/* F8: Owner/Admin/Auditor memakai kata sandi (min. 10 karakter, huruf+angka); peran operasional memakai PIN 8-10 angka (v2.5.2; server: PIN_MIN_LENGTH). Aturan yang sama ditegakkan Edge Function admin-users. */
 const PRIV_ROLES = ['owner', 'admin', 'auditor'];
-function credLabel(role, id) { return (PRIV_ROLES.indexOf(role) >= 0 ? 'Kata sandi (min. 10 karakter, huruf dan angka)' : 'PIN (6-10 angka, tidak berurutan/berulang)') + (id ? ', kosongkan jika tidak diganti' : ''); }
+function credLabel(role, id) { return (PRIV_ROLES.indexOf(role) >= 0 ? 'Kata sandi (min. 10 karakter, huruf dan angka)' : 'PIN (8-10 angka, tidak berurutan/berulang)') + (id ? ', kosongkan jika tidak diganti' : ''); }
 function credProblem(secret, role) {
   if (PRIV_ROLES.indexOf(role) >= 0) return secret.length < 10 ? 'Kata sandi Owner/Admin/Auditor minimal 10 karakter.' : (!/[A-Za-z]/.test(secret) || !/\d/.test(secret)) ? 'Kata sandi harus memuat huruf dan angka.' : null;
-  return /^\d{6,10}$/.test(secret) ? null : 'PIN harus 6-10 angka.';
+  return /^\d{8,10}$/.test(secret) ? null : 'PIN harus 8-10 angka.';
 }
 /* P0-1: pilihan peran = peran yang boleh diberikan pemanggil + peran pengguna saat ini (supaya tidak berpindah diam-diam saat form dibuka). */
 function roleOptions(cur) {
@@ -1998,15 +2044,16 @@ function reloadWhenIdle() {
   rlT = setTimeout(reloadWhenIdle, 1500);
 }
 ACT.reload = () => { if (S.token && S.data && !idleNow()) return toast('Selesaikan dulu layar yang sedang terbuka, lalu tekan Muat ulang lagi'); if (swReg && swReg.waiting) swReg.waiting.postMessage({type: 'SKIP_WAITING'}); else location.reload(); };
-window.addEventListener('online', () => { badge(); flush(); checkUpdates(true); });
+window.addEventListener('online', () => { badge(); flush(); checkUpdates(true); rtEnsure(); remoteFlush(); });
 window.addEventListener('offline', badge);
 document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); if (!document.hidden) { checkUpdates(); flush(); btWake(); if (swReg) swReg.update().catch(() => {}); } });
 async function start() {
   await Store.init();
   S.token = LS.get('token', null); S.data = LS.get('data', null); S.queue = LS.get('queue', []); S.queue.forEach(q => { const o = q.payload && q.payload.override; if (o && typeof o.diskon === 'string' && o.diskon.indexOf('sbov:') === 0) delete q.payload.override; }); /* P1-4/P1-5: token approver (JWT) dari versi lama tidak boleh tetap tersimpan */ S.ch = LS.get('ch', null); S.cart = LS.get('cart', []); S.metode = LS.get('metode', 'tunai'); S.lastSync = LS.get('lastsync', 0) || null; S.hideOut = !!LS.get('hideOut', false);
-  if (S.token && S.data) { S.tab = homeTab(); render(); shiftCheck().then(() => { if (S.tab === 'kasir') render(); }); checkUpdates(true); flush(); setTimeout(notifyConflicts, 1200); } else renderLogin(); // transaksi "perlu ditinjau" dari sesi sebelumnya langsung diingatkan
+  if (S.token && S.data) { S.tab = homeTab(); render(); shiftCheck().then(() => { if (S.tab === 'kasir') render(); }); checkUpdates(true); flush(); rtEnsure(); bootOnce(); setTimeout(notifyConflicts, 1200); } else renderLogin(); // transaksi "perlu ditinjau" dari sesi sebelumnya langsung diingatkan
 }
 window.addEventListener('pagehide', () => Store.flush());
+setInterval(pollTick, 15000);   // v2.5.2: polling cadangan; seberapa sering benar-benar memeriksa ditentukan pollEvery()
 if (window.MutationObserver) new MutationObserver(ms => { if (ms.every(m => { const t = /** @type {any} */ (m.target); return t.closest && t.closest('#grid,#cl,#cartbar,#tot,#addons'); })) return; /* v1.9.9: tap produk tidak lagi memaksa pengukuran tata letak */ cancelAnimationFrame(S.fr); S.fr = requestAnimationFrame(initFades); }).observe(document.getElementById('app'), {childList: true, subtree: true});
 if (window.matchMedia) { const mq = matchMedia('(min-width: 768px)'); (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => { if (S.token && S.data && $('#sheet').hidden && !S.dirty) render(); }); }
 Object.assign(APP.views, {tutup: vTutup, kasir: vKasir, riwayat: vRiwayat, stok: vStok, menu: vMenu, master: vMaster, users: vUsers, settings: vSettings, diag: vDiag});

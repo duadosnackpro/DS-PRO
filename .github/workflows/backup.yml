@@ -42,7 +42,7 @@ jobs:
           [ "$(wc -l < "$F.toc")" -gt 50 ] || { echo "::error::Dump mencurigakan kecil"; exit 1; }
           printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 -o "$F.dump.gpg" "$F.dump"
           rm -f "$F.dump" "$F.toc"; ls -l "$F.dump.gpg"; echo "FILE=$F.dump.gpg" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: duado-backup
           path: ${{ env.FILE }}

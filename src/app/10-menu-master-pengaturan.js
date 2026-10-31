@@ -17,7 +17,15 @@ function vMenu() {
     (can('takeover') ? '<div class="grp"><h3>Hati-hati</h3>' + mi('go_reset', 'trash', 'Reset data transaksi', 'Hapus penjualan, kas, dan riwayat stok outlet ' + esc(S.data.outlet ? S.data.outlet.code : 'ini'), 'danger') + '</div>' : '') +
     '<div class="grp grp-out">' + mi('logout', 'out', 'Keluar', esc(u.nama), 'danger') + '</div>';
 }
+function diagHealth() {
+  if (['owner', 'admin', 'auditor'].indexOf(S.data.user.role) < 0) return;
+  api('client.errors', {days: 7}, {silent: true}).then(r => { const el = $('#derr'); if (!el) return;
+    el.innerHTML = '<div class="kv"><span>Sesi 7 hari</span><span>' + esc(String(r.sesi_total)) + '</span></div><div class="kv"><span>Sesi dengan galat</span><span>' + esc(String(r.sesi_error)) + ' (' + esc(String(r.error_rate_persen)) + '%, target < 0,1%)</span></div>' +
+      (r.teratas || []).slice(0, 5).map(x => '<div class="muted" style="margin-top:4px">' + esc(String(x.jumlah)) + '× ' + esc(String(x.pesan)) + '</div>').join('');
+  }).catch(e => { const el = $('#derr'); if (el) el.textContent = e.server && /belum dipindahkan|Could not find|404/.test(e.message) ? 'Ringkasan belum tersedia (migrasi 0026 belum terpasang).' : 'Ringkasan tidak dapat dimuat: ' + e.message; });
+}
 function vDiag() {
+  setTimeout(diagHealth, 0);
   setTimeout(() => { // bandingkan versi config.js dengan versi cache sw.js: beda = unggahan web/ tidak lengkap, sehingga banner pembaruan tidak akan muncul
     const el = $('#dver'); if (!el || !window.caches) return;
     caches.keys().then(ks => {
@@ -30,6 +38,7 @@ function vDiag() {
   $('#main').innerHTML = '<button class="chip" data-act="tab" data-t="menu">← Menu</button><div class="card-s"><h3>Info perangkat</h3>' + kv('Versi aplikasi', esc(C.VERSION || '-')) + '<div id="dver"></div>' + kv('Versi data', esc(dverKey() || '-')) + kv('Layar tersimpan (cache)', Object.keys(VC).length + ' hasil') + kv('Mode', standalone ? 'Terpasang (layar utama)' : 'Browser') + kv('Koneksi', navigator.onLine ? 'Online' : 'Offline') +
     kv('Android (untuk RawBT)', isAndroid() ? 'Ya' : 'Tidak') + kv('Fitur Bagikan', navigator.share ? 'Tersedia' : 'Tidak tersedia') + kv('Antrean transaksi', q.filter(x => x.status === 'pending').length + ' menunggu, ' + q.filter(x => x.status === 'review').length + ' perlu ditinjau') + kv('Lebar struk', rcWidth() + ' karakter') + '</div>' +
     '<div class="card-s"><h3>Uji koneksi dan kecepatan server</h3><button class="btn sec" data-act="dping">Uji koneksi</button><div id="dres" class="muted" style="margin-top:6px"></div></div>' +
+    '<div class="card-s"><h3>Sinkronisasi dan kesehatan aplikasi</h3>' + kv('Sinkronisasi', S.rt === 'on' ? 'Realtime tersambung' : S.rt === 'off' ? 'Polling 45 dtk (Realtime nonaktif)' : 'Polling 45 dtk (Realtime: ' + esc(S.rt) + ')') + (['owner', 'admin', 'auditor'].indexOf(S.data.user.role) >= 0 ? '<div id="derr" class="muted">Memuat ringkasan galat…</div>' : '') + '</div>' +
     btDiagCard() +
     '<div class="card-s"><h3>Uji struk</h3><p class="muted">Memeriksa WhatsApp dan printer tanpa membuat transaksi.</p><div class="row2"><button class="btn wa" data-act="dtwa">Uji WhatsApp</button><button class="btn dark" data-act="dtbt">Uji cetak Bluetooth</button></div><button class="btn sec" data-act="dtshare">Uji Bagikan</button>' +
     '<p class="muted">Jalur RawBT (Android): pasang RawBT dari Play Store, pasangkan printer di dalam RawBT, lalu coba cetak dari RawBT dulu. Jalur BLE langsung: pilih printer BLE sekali di kartu Printer Bluetooth di atas.</p></div>' +
@@ -111,12 +120,12 @@ async function vUsers() {
   await vload('user.list', undefined, users => { S.users = users; if (!$('#ul')) return; $('#ul').innerHTML = S.users.map(u => '<button class="li" style="width:100%;border:0;font:inherit;text-align:left;margin-top:8px" data-act="uedit" data-id="' + esc(u.id) + '"><span><b>' + esc(u.nama) + '</b> <span class="muted">@' + esc(u.username) + '</span></span><span class="urow-b"><span class="badge role">' + esc(roleName(u.role)) + '</span>' + (String(u.aktif) === 'false' ? '<span class="tag red">Nonaktif</span>' : '') + (u.terkunci ? '<span class="tag red">Terkunci</span>' : '') + '</span></button>').join(''); },
     {fail: e => { if ($('#ul')) $('#ul').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; }});
 }
-/* F8: Owner/Admin/Auditor memakai kata sandi (min. 10 karakter, huruf+angka); peran operasional memakai PIN 6-10 angka. Aturan yang sama ditegakkan Edge Function admin-users. */
+/* F8: Owner/Admin/Auditor memakai kata sandi (min. 10 karakter, huruf+angka); peran operasional memakai PIN 8-10 angka (v2.5.2; server: PIN_MIN_LENGTH). Aturan yang sama ditegakkan Edge Function admin-users. */
 const PRIV_ROLES = ['owner', 'admin', 'auditor'];
-function credLabel(role, id) { return (PRIV_ROLES.indexOf(role) >= 0 ? 'Kata sandi (min. 10 karakter, huruf dan angka)' : 'PIN (6-10 angka, tidak berurutan/berulang)') + (id ? ', kosongkan jika tidak diganti' : ''); }
+function credLabel(role, id) { return (PRIV_ROLES.indexOf(role) >= 0 ? 'Kata sandi (min. 10 karakter, huruf dan angka)' : 'PIN (8-10 angka, tidak berurutan/berulang)') + (id ? ', kosongkan jika tidak diganti' : ''); }
 function credProblem(secret, role) {
   if (PRIV_ROLES.indexOf(role) >= 0) return secret.length < 10 ? 'Kata sandi Owner/Admin/Auditor minimal 10 karakter.' : (!/[A-Za-z]/.test(secret) || !/\d/.test(secret)) ? 'Kata sandi harus memuat huruf dan angka.' : null;
-  return /^\d{6,10}$/.test(secret) ? null : 'PIN harus 6-10 angka.';
+  return /^\d{8,10}$/.test(secret) ? null : 'PIN harus 8-10 angka.';
 }
 /* P0-1: pilihan peran = peran yang boleh diberikan pemanggil + peran pengguna saat ini (supaya tidak berpindah diam-diam saat form dibuka). */
 function roleOptions(cur) {
