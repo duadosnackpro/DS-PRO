@@ -38,6 +38,13 @@ begin
   perform t.ok((r ->> 'id')::uuid = sid and (r ->> 'selisih_tunai')::numeric = 0, 'tutup ulang memakai sesi yang sama; selisih 0');
   perform t.logout();
 
+end $$;
+
+-- Transaksi terpisah: now() di dalam satu transaksi bernilai sama, sehingga urutan waktu penutupan baru bermakna di blok baru ini.
+do $$
+declare sid uuid; e text;
+begin
+  select id into sid from public.cash_sessions where cashier_id = t.id('ka') and status = 'closed' and actual_cash = 100000 order by closed_at desc limit 1;
   -- penutupan lama tidak boleh dibuka bila ada yang lebih baru / sesi sedang terbuka
   perform t.login(t.id('ka'));
   perform public.rpc_cash_open(jsonb_build_object('outlet_id', t.id('o1'), 'modal_awal', 0));
