@@ -108,10 +108,10 @@ function logoEdit(el) {
 }
 async function logoLoad(file) {
   if (!file) return;
-  if (!/^image\//.test(file.type || '')) return toast('Pilih file gambar (PNG, JPG, atau WebP)');
-  if (file.size > 10 * 1024 * 1024) return toast('Gambar terlalu besar (maks. 10 MB)');
-  let src; try { src = typeof createImageBitmap === 'function' ? await createImageBitmap(file) : await loadImg(file); } catch (e1) { try { src = await loadImg(file); } catch (e2) { return toast('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.'); } }
-  const sw = src.width || src.naturalWidth, sh = src.height || src.naturalHeight; if (!sw || !sh) return toast('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.');
+  if (!/^image\//.test(file.type || '')) return fail('Pilih file gambar (PNG, JPG, atau WebP)');
+  if (file.size > 10 * 1024 * 1024) return fail('Gambar terlalu besar (maks. 10 MB)');
+  let src; try { src = typeof createImageBitmap === 'function' ? await createImageBitmap(file) : await loadImg(file); } catch (e1) { try { src = await loadImg(file); } catch (e2) { return fail('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.'); } }
+  const sw = src.width || src.naturalWidth, sh = src.height || src.naturalHeight; if (!sw || !sh) return fail('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.');
   const k = Math.min(1, 1152 / Math.max(sw, sh)), rw = Math.max(1, Math.round(sw * k)), rh = Math.max(1, Math.round(sh * k));
   const base = logoDraw(src, sw, sh, rw, rh); if (src.close) { try { src.close(); } catch (e3) {} }
   const sk = Math.min(1, 96 / Math.max(rw, rh)), sc = logoDraw(base, rw, rh, Math.max(1, Math.round(rw * sk)), Math.max(1, Math.round(rh * sk))), sd = sc.getContext('2d').getImageData(0, 0, sc.width, sc.height).data;
@@ -133,12 +133,12 @@ function logoSheet() {
 }
 function logoSave() {
   const e = LGE; if (!e || !e.out) return; const first = !logoGet();
-  return busy('Menyimpan logo…', async () => { try { await api('setting.logo', {data: logoEncode(e.out), aktif: first}); await loadData(); closeSheet(); render(); toast('Logo disimpan'); } catch (er) { toast(er.message); } });
+  return busy('Menyimpan logo…', async () => { try { await api('setting.logo', {data: logoEncode(e.out), aktif: first}); await loadData(); closeSheet(); render(); toast('Logo disimpan'); } catch (er) { fail(er.message); } });
 }
-function logoDel() {
-  if (S.dirty) return toast('Simpan perubahan pengaturan dulu.');
-  if (!confirm('Hapus logo struk?')) return;
-  return busy('Menghapus logo…', async () => { try { await api('setting.logo', {data: ''}); await loadData(); render(); toast('Logo dihapus'); } catch (er) { toast(er.message); } });
+async function logoDel() {
+  if (S.dirty) return fail('Simpan perubahan pengaturan dulu.');
+  if (!await askConfirm('Hapus logo struk?', 'Struk kembali mencetak nama usaha sebagai judul.', 'Hapus logo', {danger: true})) return;
+  return busy('Menghapus logo…', async () => { try { await api('setting.logo', {data: ''}); await loadData(); render(); toast('Logo dihapus'); } catch (er) { fail(er.message); } });
 }
 function logoCard() { // isi kartu "Logo struk" di Pengaturan (di luar tombol-tombol sakelar)
   const lg = logoGet(), url = lg ? logoURL(lg) : '';
@@ -170,7 +170,7 @@ function waSend(rc, number) {
 async function copyText(t, msg) {
   msg = msg || 'Struk disalin. Tempel di WhatsApp atau aplikasi lain.';
   try { await navigator.clipboard.writeText(t); toast(msg); }
-  catch (e) { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (x) {} ta.remove(); toast(ok ? msg : 'Tidak bisa menyalin.'); }
+  catch (e) { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (x) {} ta.remove(); if (ok) toast(msg); else fail('Tidak bisa menyalin.'); }
 }
 async function shareRc(rc) {
   const text = receiptText(rc);

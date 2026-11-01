@@ -1,7 +1,7 @@
 /* ---------- Menu, data master, pengguna, pengaturan ---------- */
 const standalone = () => !!((window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true);
-function confirmLogout() {
-  const p = S.queue.length; if (!confirm(p ? 'Masih ada ' + p + ' transaksi yang belum terkirim ke server. Transaksi itu tetap tersimpan di perangkat dan dikirim saat Anda masuk lagi. Tetap keluar?' : 'Keluar dari akun ini?')) return;
+async function confirmLogout() {
+  const p = S.queue.length; if (!await askConfirm('Keluar dari akun ini?', p ? p + ' transaksi belum terkirim. Tetap tersimpan di perangkat dan dikirim saat Anda masuk lagi.' : 'Anda perlu masuk lagi untuk memakai aplikasi.', 'Keluar', {danger: p > 0})) return;
   S.dirty = false; logout();
 }
 function vMenu() {
@@ -76,7 +76,7 @@ function vMaster(noLoad) {
     rows.map(r => '<button class="li" style="width:100%;border:0;font:inherit;text-align:left" data-act="medit" data-id="' + esc(r.id) + '"><span' + (r.dibatalkan || r.pembalik ? ' style="text-decoration:' + (r.dibatalkan ? 'line-through' : 'none') + ';opacity:.7"' : '') + '>' + esc(cfg.t(r)) + (r.dibatalkan ? ' (dibatalkan)' : r.pembalik ? ' (pembatalan)' : '') + '</span><span class="muted">' + (S.mt === 'expenses' ? 'Rincian' : 'Ubah') + '</span></button>').join('') + (S.mt === 'expenses' && !S.expLoaded ? skel(3) : '');
   if (S.mt === 'expenses' && !noLoad) loadExp();
 }
-async function loadExp() { await vload('master.list', {table: 'expenses'}, r => { S.exp = r; S.expLoaded = true; if (S.tab === 'master' && S.mt === 'expenses') vMaster(true); }, {fail: e => toast(e.message)}); }
+async function loadExp() { await vload('master.list', {table: 'expenses'}, r => { S.exp = r; S.expLoaded = true; if (S.tab === 'master' && S.mt === 'expenses') vMaster(true); }, {fail: e => fail(e.message)}); }
 function meditSheet(id) {
   const cfg = MT[S.mt], r = id ? (S.mt === 'expenses' ? S.exp : S.data[cfg.k]).find(x => x.id === id) : {tanggal: today()};
   S.fotoFor = S.mt === 'products' ? id : null;
@@ -91,7 +91,7 @@ async function mSave(id) {
   return busy('Menyimpan data…', async () => {
   const data = readForm(); if (id) data.id = id;
   ['harga_jual', 'fee_persen', 'fee_tetap', 'stok_minimum', 'nominal', 'faktor_kecil'].forEach(k => { if (k in data) data[k] = dnum(data[k]) || 0; });
-  try { const rec = await api('master.save', {table: S.mt, data: data}); S.expLoaded = false; if (!patchMaster(S.mt, rec)) await loadData(); closeSheet(); render(); toast('Tersimpan'); } catch (e) { toast(e.message); }
+  try { const rec = await api('master.save', {table: S.mt, data: data}); S.expLoaded = false; if (!patchMaster(S.mt, rec)) await loadData(); closeSheet(); render(); toast('Tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 /* Setelah simpan, server mengembalikan rekaman terbaru: perangkat cukup memperbarui satu baris, tanpa mengunduh ulang seluruh data (dulu: dua permintaan berurutan). */
@@ -110,9 +110,9 @@ function patchRecipe(r) {
   S.data.recipe_items = (S.data.recipe_items || []).filter(x => x.recipe_id !== rec.id).concat(r.items); LS.set('data', S.data); return true;
 }
 async function mDel(id) {
+  if (!await askConfirm('Hapus data ini?', 'Data yang dihapus tidak bisa dikembalikan dari aplikasi.', 'Hapus', {danger: true})) return;
   return busy('Menghapus…', async () => {
-  if (!confirm('Hapus data ini?')) return;
-  try { await api('master.remove', {table: S.mt, id: id}); S.expLoaded = false; await loadData(); closeSheet(); render(); toast('Dihapus'); } catch (e) { toast(e.message); }
+  try { await api('master.remove', {table: S.mt, id: id}); S.expLoaded = false; await loadData(); closeSheet(); render(); toast('Dihapus'); } catch (e) { fail(e.message); }
   });
 }
 async function vUsers() {
@@ -142,9 +142,9 @@ function ueditSheet(id) {
 async function uSave(id) {
   return busy('Menyimpan pengguna…', async () => {
   const d = readForm(); if (id) { d.id = id; const cur = (S.users.find(x => x.id === id) || {}).role; if (!d.role || d.role === cur) delete d.role; }   // P0-1: kirim peran hanya bila benar-benar diubah
-  if (!id && !d.role) { toast('Pilih peran.'); return; }
-  { const role = d.role || (S.users.find(x => x.id === id) || {}).role, cp = d.pin ? credProblem(String(d.pin), role) : null; if (cp) { toast(cp); return; } }   // server tetap memeriksa ulang
-  try { await api('user.save', d); closeSheet(); vUsers(); toast('Tersimpan'); } catch (e) { toast(e.message); }
+  if (!id && !d.role) { fail('Pilih peran.', '[data-f="role"]'); return; }
+  { const role = d.role || (S.users.find(x => x.id === id) || {}).role, cp = d.pin ? credProblem(String(d.pin), role) : null; if (cp) { fail(cp, '[data-f="pin"]'); return; } }   // server tetap memeriksa ulang
+  try { await api('user.save', d); closeSheet(); vUsers(); toast('Tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 const selF = (k, l, pairs, cur) => '<label>' + l + '<select class="inp" data-f="' + k + '">' + pairs.map(p => '<option value="' + p[0] + '"' + (String(cur) === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('') + '</select></label>';
@@ -161,11 +161,15 @@ function addonSheet() {
     '<label>Nama<input class="inp" id="ad_n" value="Kantong Kresek"></label><div class="row2"><div style="flex:1"><label>Harga jual (Rp)<input class="inp" id="ad_h" inputmode="decimal" value="500"></label></div><div style="flex:1"><label>Biaya/HPP per buah (Rp)<input class="inp" id="ad_c" inputmode="decimal" value="0"></label></div></div>' +
     '<label>Stok awal (jumlah)<input class="inp" id="ad_s" inputmode="decimal" value="100"></label><button class="btn pri" data-act="addonsave">Simpan</button><button class="btn sec" data-act="close">Batal</button>');
 }
+/* P2 (UX-11): 11 kartu pengaturan dibagi 3 halaman (maks. 4 kartu per halaman). Semua kolom tetap ada di SATU form (#sf): kartu di halaman lain hanya disembunyikan, jadi Simpan, penanda "belum disimpan", dan Kembali tetap bekerja untuk seluruh pengaturan. */
+const SET_PAGES = ['Struk & printer', 'Penjualan', 'Data & biaya'];
+const SET_PAGE_OF = {'Usaha & Struk': 0, 'Logo struk': 0, 'Header & footer struk': 0, 'Printer': 0, 'Pajak (PPN)': 1, 'Stok': 1, 'Kantong & Tambahan': 1, 'Kontrol kasir': 1, 'Kontrol data': 2, 'Kunci periode (Owner)': 2, 'HPP & Overhead': 2};
+function setPageNav(pg) { return '<nav class="spages" aria-label="Bagian pengaturan">' + SET_PAGES.map((n, i) => '<button type="button" class="chip' + (i === pg ? ' on' : '') + '" data-act="spage" data-p="' + i + '"' + (i === pg ? ' aria-current="true"' : '') + '>' + n + '</button>').join('') + '</nav>'; }
 function vSettings() {
-  const s = S.data.settings, g = (k, d) => (s[k] == null || s[k] === '' ? d : s[k]), card = (t, h) => '<section class="set-card"><h3>' + t + '</h3>' + h + '</section>';
+  const s = S.data.settings, g = (k, d) => (s[k] == null || s[k] === '' ? d : s[k]), pg = S.spage || 0, card = (t, h) => '<section class="set-card" data-sp="' + SET_PAGE_OF[t] + '"' + (SET_PAGE_OF[t] === pg ? '' : ' hidden') + '><h3>' + t + '</h3>' + h + '</section>';
   const sw = (k, l, sub, def) => '<label class="sw"><input type="checkbox" data-f="' + k + '"' + (T(s[k] == null || s[k] === '' ? def : s[k]) ? ' checked' : '') + '><span class="sw-t" aria-hidden="true"></span><span class="sw-l"><b>' + l + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span></label>';
   const m = $('#main'); m.className = 'col';
-  m.innerHTML = '<button class="chip" data-act="tab" data-t="menu" style="align-self:flex-start">← Menu</button><div id="sf" style="margin-top:8px">' +
+  m.innerHTML = '<button class="chip" data-act="tab" data-t="menu" style="align-self:flex-start">← Menu</button><div id="sf" style="margin-top:8px">' + setPageNav(pg) +
     card('Usaha & Struk', field(['nama_usaha', 'Nama usaha'], s.nama_usaha) + '<p class="muted" style="margin:-4px 0 8px">Dicetak sebagai judul struk hanya bila logo tidak dipakai.</p>' + selF('lebar_struk', 'Lebar kertas struk', [['32', '58 mm (area cetak 48 mm)'], ['48', '80 mm (area cetak 72 mm)']], g('lebar_struk', '32'))) +
     card('Logo struk', logoCard() + sw('logo_aktif', 'Cetak logo di struk', 'Untuk printer thermal. Nama usaha tidak dicetak lagi bila logo aktif. Struk WhatsApp tetap berupa teks.') +
       (logoGet() ? '<button class="btn sec sm" data-act="logotest">Uji cetak logo</button>' : '') + '<p class="muted">Ukuran kertas diganti (58 atau 80 mm)? Pilih ulang logo agar ukurannya pas.</p>') +
@@ -196,7 +200,7 @@ async function sSave() {
   const v = {}; document.querySelectorAll('#sf [data-f]').forEach(e => v[e.dataset.f] = e.type === 'checkbox' ? e.checked : e.value);
   ['opname_ambang_nilai', 'transfer_ambang_nilai', 'bayar_referensi_min'].forEach(k => { if (k in v) v[k] = String(v[k]).replace(/\D/g, ''); });   // angka bulat atau kosong (kosong = nonaktif)
   ['ppn_persen', 'overhead_per_unit', 'overhead_per_batch', 'target_margin', 'stok_menipis', 'diskon_maks_persen', 'kelipatan_harga'].forEach(k => { if (k in v) { const n = dnum(v[k]); v[k] = isNaN(n) ? 0 : n; } });
-  try { await api('setting.setMany', {values: v}); S.dirty = false; await loadData(); render(); toast('Pengaturan tersimpan'); } catch (e) { toast(e.message); }
+  try { await api('setting.setMany', {values: v}); S.dirty = false; await loadData(); render(); toast('Pengaturan tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 

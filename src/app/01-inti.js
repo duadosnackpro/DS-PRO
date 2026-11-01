@@ -43,7 +43,7 @@ const Store = (() => {
   return {
     init: init, flush: flushNow, mode: () => idb ? 'IndexedDB' : 'localStorage',
     get: (k, d) => mem[k] == null ? d : mem[k],
-    set: (k, v, now) => { mem[k] = v; if (idb) { if (CRIT.indexOf(k) >= 0) journal(k, {v: v}); dirty[k] = 1; if (now) flushNow(); else { clearTimeout(timer); timer = setTimeout(flushNow, 400); } } else { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { toast('Penyimpanan perangkat penuh'); } } },
+    set: (k, v, now) => { mem[k] = v; if (idb) { if (CRIT.indexOf(k) >= 0) journal(k, {v: v}); dirty[k] = 1; if (now) flushNow(); else { clearTimeout(timer); timer = setTimeout(flushNow, 400); } } else { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { fail('Penyimpanan perangkat penuh'); } } },
     del: k => { delete mem[k]; if (idb) { if (CRIT.indexOf(k) >= 0) journal(k, {x: 1}); dirty[k] = 2; if (CRIT.indexOf(k) >= 0) flushNow(); else { clearTimeout(timer); timer = setTimeout(flushNow, 400); } } else { try { localStorage.removeItem(k); } catch (e) {} } }
   };
 })();
@@ -116,6 +116,35 @@ function watchMore() {
   els.forEach(e => moreIO.observe(e));
 }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.className = 'show'; clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 2600); }
+/* P1 (UX-01, UX-19): galat tidak boleh hilang sendiri. toast() hanya untuk kabar baik dan info singkat. Pesan bahwa sebuah aksi GAGAL atau DITOLAK memakai fail():
+   - tanpa `field`: kotak role="alert" dengan tombol Tutup, bertahan sampai ditutup. Di dalam sheet bila sheet terbuka (terjangkau keyboard, tidak melanggar jebakan fokus), selain itu di spanduk #errbar.
+   - dengan `field` (selector kolom): pesan di bawah kolom, kolom diberi aria-invalid + aria-describedby lalu difokuskan; hilang saat kolom diubah. Satu galat tampil pada satu waktu. */
+let failSeq = 0;
+function failClear() {
+  S.err = null;
+  document.querySelectorAll('.errbox,.ferr').forEach(x => x.remove());
+  document.querySelectorAll('[aria-invalid="true"]').forEach(x => { x.removeAttribute('aria-invalid'); if (/^fe\d+$/.test(x.getAttribute('aria-describedby') || '')) x.removeAttribute('aria-describedby'); });
+}
+function failBox() { // (re)pasang kotak galat dari S.err: di sheet yang terbuka, atau di #errbar
+  if (!S.err) return;
+  const sh = $('#sheet'), d = sh && !sh.hidden ? sh.querySelector('.sheet') : null, bar = $('#errbar');
+  document.querySelectorAll('.errbox').forEach(x => x.remove());
+  const box = document.createElement('div'); box.className = 'errbox'; box.setAttribute('role', 'alert');
+  box.innerHTML = '<span class="et">' + esc(S.err) + '</span><button type="button" class="chip" data-act="errx">Tutup</button>';
+  if (d) { const h = d.querySelector('h2'); d.insertBefore(box, h ? h.nextSibling : d.firstChild); } else if (bar) bar.appendChild(box);
+}
+function fail(m, field) {
+  clearTimeout(/** @type {any} */ (toast).t); const t = $('#toast'); if (t) t.className = ''; // galat menggantikan toast info yang sedang tampil
+  m = String(m == null ? '' : m).trim() || 'Terjadi kesalahan. Coba lagi.'; // pesan kosong tidak boleh menjadi kotak kosong
+  const el = field ? /** @type {HTMLElement|null} */ (document.querySelector(field)) : null;
+  failClear();
+  if (!el || !el.isConnected) { S.err = m; failBox(); return; }
+  const host = el.closest('label') || el, par = host.parentElement, at = par && par.classList.contains('row2') ? par : host; // pesan di luar <label> agar tidak ikut menjadi nama kolom
+  const p = document.createElement('div'); p.className = 'ferr'; p.id = 'fe' + (++failSeq); p.setAttribute('role', 'alert'); p.textContent = m;
+  at.insertAdjacentElement('afterend', p);
+  el.setAttribute('aria-invalid', 'true'); el.setAttribute('aria-describedby', p.id);
+  try { el.focus(); el.scrollIntoView({block: 'nearest'}); } catch (e) { /* kolom tak bisa difokuskan: pesan tetap tampil */ }
+}
 /* A: selama sheet terbuka, halaman di belakangnya tidak boleh terbaca pembaca layar maupun terjangkau Tab/ketuk (inert + aria-hidden). */
 function bgInert(on) { ['app', 'upd'].forEach(id => { const e = document.getElementById(id); if (!e) return; if (on) { e.setAttribute('inert', ''); e.setAttribute('aria-hidden', 'true'); } else { e.removeAttribute('inert'); e.removeAttribute('aria-hidden'); } }); }
 function sheet(html) {
@@ -125,7 +154,30 @@ function sheet(html) {
   if (!d) return;
   if (h) { h.id = 'sheet-h'; d.setAttribute('aria-labelledby', 'sheet-h'); } else d.setAttribute('aria-label', 'Dialog'); // nama dialog = judulnya, bukan kata generik
   if (opening) d.focus({preventScroll: true}); // fokus masuk ke dialog (wadah, bukan kolom isian: keyboard layar tidak muncul sendiri)
+  if (S.err) failBox(); // galat yang masih berlaku ikut pindah ke sheet (sheet dirender ulang atau baru dibuka)
 }
+/* P2 (UX-06): pengganti confirm() bawaan browser. askConfirm(judul, pesan, labelOk, {danger, cancel}) -> Promise<boolean>.
+   Bila sudah ada sheet terbuka (mis. form edit), isinya DITAHAN (bukan dihancurkan) selama konfirmasi tampil lalu dipasang lagi saat Batal, jadi isian yang sudah diketik tidak hilang.
+   Esc, ketuk latar, dan tombol Kembali = Batal. Tombol utama di atas (tindakan yang disarankan), Batal di bawah; danger:true = merah (hapus/tolak/batalkan). */
+function askConfirm(title, msg, okLabel, o) {
+  o = o || {};
+  return new Promise(res => {
+    const b = $('#sheet'), prev = !b.hidden ? document.createDocumentFragment() : null, qo = S.qopen;
+    if (prev) while (b.firstChild) prev.appendChild(b.firstChild);
+    S.opin = {res: v => res(!!v), kind: 'konfirm', prev: prev, qopen: qo}; S.qopen = false; // qopen=false: badge() tidak menimpa sheet ini dengan daftar antrean
+    sheet('<div class="grab"></div><h2>' + esc(title) + '</h2><p class="muted">' + esc(msg) + '</p><button class="btn ' + (o.danger ? 'dan' : 'pri') + '" data-act="cf_ok">' + esc(okLabel || 'Lanjutkan') + '</button><button class="btn sec" data-act="cf_no">' + esc(o.cancel || 'Batal') + '</button>');
+    const bg = b.querySelector('.sheet-bg'); if (bg) bg.setAttribute('data-act', 'cf_no'); // ketuk latar = Batal (bukan menutup seluruh sheet di bawahnya)
+    const d = /** @type {HTMLElement|null} */ (b.querySelector('.sheet')); if (d) d.focus({preventScroll: true});
+  });
+}
+function cfDone(ok) {
+  const o = S.opin; if (!o || o.kind !== 'konfirm') return;
+  S.opin = null; const b = $('#sheet');
+  if (o.prev) { failClear(); b.innerHTML = ''; b.appendChild(o.prev); S.qopen = o.qopen; const d = /** @type {HTMLElement|null} */ (b.querySelector('.sheet')); if (d) d.focus({preventScroll: true}); } // sheet semula kembali apa adanya
+  else closeSheet();
+  o.res(ok);
+}
+const dismissSheet = () => { if (S.opin && S.opin.kind === 'konfirm') cfDone(false); else closeSheet(); }; // Esc, Kembali: konfirmasi = Batal, selain itu tutup
 /* Tab tetap berputar di dalam dialog yang terbuka (aria-modal): tanpa ini Tab keluar ke halaman di belakang sheet. */
 function trapTab(/** @type {KeyboardEvent} */ e) {
   const b = $('#sheet'); if (!b || b.hidden || S.busyOn) return;
@@ -137,5 +189,5 @@ function trapTab(/** @type {KeyboardEvent} */ e) {
   else if (e.shiftKey && a === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && a === last) { e.preventDefault(); first.focus(); }
 }
-function closeSheet() { if (S.opin) { const r = S.opin.res; S.opin = null; r(null); } const b = $('#sheet'); S.qopen = false; b.hidden = true; b.innerHTML = ''; bgInert(false); try { const f = S.sheetFrom; S.sheetFrom = null; if (f && f.isConnected && f.focus) f.focus({preventScroll: true}); } catch (e) {} if (S.deferRender) { S.deferRender = false; render(); } if (S.conflictPending) setTimeout(notifyConflicts, 250); }
+function closeSheet() { if (S.opin) { const r = S.opin.res; S.opin = null; r(null); } const b = $('#sheet'); S.qopen = false; if (!b.hidden) failClear(); b.hidden = true; b.innerHTML = ''; bgInert(false); try { const f = S.sheetFrom; S.sheetFrom = null; if (f && f.isConnected && f.focus) f.focus({preventScroll: true}); } catch (e) {} if (S.deferRender) { S.deferRender = false; render(); } if (S.conflictPending) setTimeout(notifyConflicts, 250); }
 

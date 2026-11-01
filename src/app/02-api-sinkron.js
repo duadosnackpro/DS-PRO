@@ -13,9 +13,15 @@ async function api(action, payload, opt) {
 }
 /* Animasi loading: overlay untuk aksi simpan/muat ulang, bar di atas untuk semua panggilan server, skeleton untuk daftar */
 async function busy(label, fn) {
-  if (S.busyOn) return; S.busyOn = true;
+  if (S.busyOn) return; S.busyOn = true; failClear(); // aksi baru dimulai: galat dari percobaan sebelumnya tidak lagi berlaku
   const el = $('#busy'); el.innerHTML = '<div class="busybox"><div class="loader"></div><div class="lbl">' + esc(label) + '</div></div>'; el.hidden = false;
   try { return await fn(); } finally { S.busyOn = false; el.hidden = true; el.innerHTML = ''; if (S.conflictPending && $('#sheet').hidden) setTimeout(notifyConflicts, 400); }
+}
+/* P2: dialog (mis. konfirmasi) di tengah aksi yang sedang `busy`: sembunyikan overlay dan buka kuncinya selama menunggu jawaban, lalu pasang lagi. */
+async function busyPause(fn) {
+  const el = $('#busy'), was = S.busyOn; if (!was) return fn();
+  S.busyOn = false; el.hidden = true;
+  try { return await fn(); } finally { S.busyOn = true; el.hidden = false; }
 }
 function busyLabel(t) { const l = document.querySelector('#busy .lbl'); if (l) l.textContent = t; }
 const skel = n => Array.from({length: n || 3}, () => '<div class="sk"></div>').join('');

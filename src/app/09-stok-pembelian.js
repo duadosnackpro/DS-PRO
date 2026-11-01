@@ -35,7 +35,7 @@ async function adjSave(t, id) {
   try {
     const r = await api('stock.adjust', {tipe: t, id: id, stok_baru: dnum($('#a_s').value), hpp: $('#a_h').value.trim() === '' ? '' : dnum($('#a_h').value), alasan: $('#a_r').value});
     const it = t === 'bahan' ? S.data.materials.find(m => m.id === id) : vById(id); it.stok = r.stok; it.hpp_rata2 = r.hpp_rata2; LS.set('data', S.data); closeSheet(); render(); toast('Stok disimpan');
-  } catch (e) { toast(e.message); }
+  } catch (e) { fail(e.message); }
   });
 }
 function pbSheet() {
@@ -56,17 +56,17 @@ async function pbHist() {
   } catch (e) { $('#pbh').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 async function pbCancel(id) {
-  const why = prompt('Alasan membatalkan pembelian ini (min. 3 huruf):'); if (why === null) return; if (why.trim().length < 3) return toast('Alasan wajib diisi');
-  return busy('Membatalkan…', async () => { try { await api('purchase.cancel', {id: id, alasan: why.trim()}); await loadData(); toast('Pembelian dibatalkan, stok bahan dikembalikan'); pbHist(); } catch (e) { toast(e.message); } });
+  const why = await askReason('Batalkan pembelian ini?', 'Stok bahan dikembalikan. Tulis alasannya (min. 3 huruf).', 'Batalkan pembelian'); if (why === null) return pbHist(); // batal: kembali ke daftar pembelian
+  return busy('Membatalkan…', async () => { try { await api('purchase.cancel', {id: id, alasan: why.trim()}); await loadData(); toast('Pembelian dibatalkan, stok bahan dikembalikan'); pbHist(); } catch (e) { fail(e.message); } });
 }
 async function pbSave() {
   return busy('Menyimpan pembelian…', async () => {
-  const pb = S.pb; if (!pb.items.length) return toast('Daftar masih kosong');
+  const pb = S.pb; if (!pb.items.length) return fail('Daftar masih kosong');
   try {
     const r = await api('purchase.create', {supplier_id: pb.sup, ongkir: Number(pb.ongkir) || 0, items: pb.items.map(i => ({material_id: i.id, qty: i.qty, harga_satuan: i.harga}))});
     r.materials.forEach(u => { const m = S.data.materials.find(x => x.id === u.id); if (m) { m.stok = u.stok; if (u.hpp_rata2 !== undefined) m.hpp_rata2 = u.hpp_rata2; } });   // server hanya mengirim stok; jangan menghapus HPP yang ada
     LS.set('data', S.data); S.pb = {items: [], ongkir: '', sup: ''}; closeSheet(); render(); toast('Pembelian tersimpan, HPP diperbarui');
-  } catch (e) { toast(e.message); }
+  } catch (e) { fail(e.message); }
   });
 }
 

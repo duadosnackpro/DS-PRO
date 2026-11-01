@@ -15,12 +15,12 @@ async function doLogin() {
     /* Penguncian ganti user: antrean pengguna lain yang belum terkirim tidak boleh tertinggal atau tercampur. */
     const other = S.queue.filter(q => q.uid !== r.uid);
     if (other.length) {
-      if (can('takeover', r.role) && confirm('Ada ' + other.length + ' transaksi pengguna lain yang belum terkirim di perangkat ini.\n\nKirim atas nama mereka sekarang (diambil alih Owner)? Pilih Batal untuk membatalkan login.')) other.forEach(q => { q.by = r.uid; });
+      if (can('takeover', r.role) && await busyPause(() => askConfirm('Kirim transaksi pengguna lain?', other.length + ' transaksi pengguna lain belum terkirim di perangkat ini. Kirim atas nama mereka?', 'Kirim', {cancel: 'Batalkan masuk'}))) other.forEach(q => { q.by = r.uid; });
       else { try { await api('logout', {}, {silent: true}); } catch (e) {} S.token = null; throw Object.assign(new Error(can('takeover', r.role) ? 'Login dibatalkan. Antrean pengguna lain belum terkirim.' : 'Masih ada ' + other.length + ' transaksi pengguna lain yang belum terkirim di perangkat ini. Masuk sebagai pengguna tersebut dulu agar antrean terkirim, atau hubungi Owner.'), {server: true}); }
       LS.set('queue', S.queue);
     }
     LS.set('token', r.token); LS.set('lastUser', u); LS.set('shared', !!($('#lsh') && $('#lsh').checked));
-    await loadData(); await shiftCheck(); S.tab = homeTab(); render(); flush();
+    await loadData(); await shiftCheck(); S.tab = homeTab(); render(); navArm(); flush();
     if (r.pin_lemah) setTimeout(() => toast(own() ? 'PIN Anda lemah. Ganti di Menu, Pengguna.' : 'PIN Anda lemah. Minta Owner menggantinya.'), 900);
   } catch (e) { S.token = null; $('#lerr').textContent = e.server ? e.message : 'Tidak dapat terhubung ke server. ' + e.message; } });
 }

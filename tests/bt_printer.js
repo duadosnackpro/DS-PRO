@@ -4,7 +4,7 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
 const SRC = fs.readFileSync(path.join(__dirname, '../src/app/045-bt-printer.js'), 'utf8');
 const RASTER = [0x1D, 0x76, 0x30, 0, 2, 0, 3, 0, 1, 2, 3, 4, 5, 6]; // 2 byte x 3 baris
 function mk(o) {
-  o = o || {}; const store = {}, log = {toast: [], err: []}, listeners = [];
+  o = o || {}; const store = {}, log = {toast: [], fail: [], err: []}, listeners = [];
   const mkChr = (w, nm) => ({uuid: 'chr-' + nm, properties: w, service: null, _w: [], async writeValueWithoutResponse(v) { await this._h(v); }, async writeValueWithResponse(v) { await this._h(v); }, async writeValue(v) { await this._h(v); },
     async _h(v) { dev.cc++; dev.max = Math.max(dev.max, dev.cc); await Promise.resolve(); try { if (dev.failAt && dev.writes.length + 1 === dev.failAt.n) { dev.failAt = null; if (dev.failDrop) dev.gatt.drop(); const e = new Error('GATT Error: write failed'); e.name = 'NetworkError'; throw e; } dev.writes.push(Array.from(v)); } finally { dev.cc--; } }});
   const mkDev = (id, name, svcs) => { const ls = [], d = {id, name, writes: [], cc: 0, max: 0, connects: 0, hang: 0, failAt: null, failDrop: false,
@@ -22,7 +22,7 @@ function mk(o) {
     bluetooth: o.noBle ? undefined : {reqs: 0, async requestDevice() { nav.bluetooth.reqs++; if (o.cancel) { const e = new Error('cancel'); e.name = 'NotFoundError'; throw e; } return dev; }, async getDevices() { return o.noGet ? [] : (o.devices || [dev]); }}};
   if (o.noGet) delete nav.bluetooth.getDevices;
   const ctx = {navigator: nav, document: {hidden: false, querySelectorAll: () => [], querySelector: () => null, getElementById: () => null}, S: {tab: 'kasir', rc: null}, setTimeout, clearTimeout, setInterval, clearInterval, Date, Object, Promise, Error, Array, String, Number, Math, JSON, Uint8Array,
-    LS: {get: (k, d) => k in store ? store[k] : d, set: (k, v) => { store[k] = v; }, del: k => { delete store[k]; }}, toast: m => log.toast.push(m), logErr: e => log.err.push(e), sleep: () => Promise.resolve(), esc: s => String(s), fmtDT: () => '2026-10-30 10:00',
+    LS: {get: (k, d) => k in store ? store[k] : d, set: (k, v) => { store[k] = v; }, del: k => { delete store[k]; }}, toast: m => log.toast.push(m), fail: m => log.fail.push(m), logErr: e => log.err.push(e), sleep: () => Promise.resolve(), esc: s => String(s), fmtDT: () => '2026-10-30 10:00',
     isAndroid: () => /Android/.test(nav.userAgent), isIOS: () => /iPhone|iPad/.test(nav.userAgent), escpos: rc => new Uint8Array([0x1B, 0x40].concat(rc.big ? new Array(250).fill(65) : [66, 10], RASTER, [10, 0x1B, 0x64, 4])), go: u => { log.go = u; }, b64: u => 'B64', printBrowser: () => { log.browser = 1; }, sheet: () => { log.sheet = 1; }, Window: null};
   if (o.serial) ctx.navigator.serial = o.serial;
   vm.createContext(ctx); vm.runInContext(SRC, ctx); vm.runInContext('BT.to = 40; BT.bo = [5, 5, 5, 5];', ctx);
@@ -55,6 +55,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms)), flat = w => [].concat(..
   // connect menggantung
   t = mk(); t.store.btmode = 'ble'; t.dev.hang = 1; const okh = await t.x.btPrintQ(rc('h')); ok(okh === true && t.dev.connects === 2, 'connect menggantung => batas waktu, coba lagi, berhasil'); 
   t = mk(); t.store.btmode = 'ble'; t.dev.hang = 9; const nok = await t.x.btPrintQ(rc('h2')); ok(nok === false && t.x.BT.st === 'lost' && /mati atau jauh/.test(t.x.BT.fail.msg), 'printer mati => gagal jelas, status terputus, ada pesan');
+  ok(t.log.fail.length === 1 && /^Gagal mencetak: /.test(t.log.fail[0]) && t.log.toast.every(m => !/^Gagal mencetak/.test(m)), 'P1: kegagalan cetak lewat fail() (bertahan), bukan toast yang hilang sendiri');
   t = mk(); t.store.btmode = 'ble'; t.dev.hang = 99; await t.x.btPrintQ(rc('z0')); const c0 = t.dev.connects; ok(t.x.BT.st === 'lost', 'dasar: gagal => lost'); t.dev.gatt.drop(); await wait(80); ok(t.x.BT.st === 'lost' && t.dev.connects === c0, 'putus susulan saat status terputus tidak memulai siklus sambung baru');
   // putus di tengah => sambung ulang dan kirim ulang dari awal
   t = mk(); t.store.btmode = 'ble'; await t.x.btPrintQ(rc('w0')); t.dev.writes.length = 0; t.dev.failAt = {n: 2}; t.dev.failDrop = true; const okd = await t.x.btPrintQ(rc('w1', true));

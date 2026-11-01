@@ -18,7 +18,7 @@ function trDraw() {
 }
 function trNewSheet() {
   const others = pickable().filter(o => o.id !== S.data.outlet.id);
-  if (!others.length) return toast('Belum ada outlet aktif lain sebagai tujuan');
+  if (!others.length) return fail('Belum ada outlet aktif lain sebagai tujuan');
   S.trf = {to: others[0].id, kind: 'variant', item: '', qty: '', items: [], catatan: ''};
   trNewDraw();
 }
@@ -47,13 +47,13 @@ function trDetail(id) {
 }
 async function trAct(id, a) {
   const t = (S.trs || []).find(x => x.id === id); if (!t) return; const p = {id: id, action: a};
-  if (a === 'receive') { p.items = t.items.map((it, i) => { const el = document.querySelector('[data-rc="' + i + '"]'); return {item_type: it.tipe, item_id: it.item_id, qty_received: dnum(el ? el.value : it.dikirim)}; }); if (p.items.some(x => isNaN(x.qty_received))) return toast('Jumlah diterima tidak valid'); }
-  if (['reject', 'cancel'].indexOf(a) >= 0 && !confirm(a === 'reject' ? 'Tolak transfer ini?' : 'Batalkan transfer ini?')) return;
-  return busy('Memproses…', async () => { try { await api('transfer.action', p); await loadData(); closeSheet(); vTransfer(); toast('Transfer diperbarui'); } catch (e) { toast(e.message); } });
+  if (a === 'receive') { p.items = t.items.map((it, i) => { const el = document.querySelector('[data-rc="' + i + '"]'); return {item_type: it.tipe, item_id: it.item_id, qty_received: dnum(el ? el.value : it.dikirim)}; }); if (p.items.some(x => isNaN(x.qty_received))) return fail('Jumlah diterima tidak valid'); }
+  if (['reject', 'cancel'].indexOf(a) >= 0 && !await askConfirm(a === 'reject' ? 'Tolak transfer ini?' : 'Batalkan transfer ini?', 'Stok tidak dipindahkan.', a === 'reject' ? 'Tolak' : 'Batalkan transfer', {danger: true, cancel: 'Kembali'})) return;
+  return busy('Memproses…', async () => { try { await api('transfer.action', p); await loadData(); closeSheet(); vTransfer(); toast('Transfer diperbarui'); } catch (e) { fail(e.message); } });
 }
 async function trSave(aj) {
-  const f = S.trf; if (!f.items.length) return toast('Tambahkan minimal satu item');
-  return busy('Menyimpan transfer…', async () => { try { await api('transfer.create', {from_outlet_id: S.data.outlet.id, to_outlet_id: f.to, items: f.items, catatan: f.catatan, ajukan: aj}); closeSheet(); vTransfer(); toast(aj ? 'Transfer diajukan' : 'Draft tersimpan'); } catch (e) { toast(e.message); } });
+  const f = S.trf; if (!f.items.length) return fail('Tambahkan minimal satu item');
+  return busy('Menyimpan transfer…', async () => { try { await api('transfer.create', {from_outlet_id: S.data.outlet.id, to_outlet_id: f.to, items: f.items, catatan: f.catatan, ajukan: aj}); closeSheet(); vTransfer(); toast(aj ? 'Transfer diajukan' : 'Draft tersimpan'); } catch (e) { fail(e.message); } });
 }
 document.addEventListener('input', e => { const k = e.target && e.target.dataset && e.target.dataset.tf; if (k && S.trf) S.trf[k] = e.target.value; });
 document.addEventListener('change', e => { const k = e.target && e.target.dataset && e.target.dataset.tf; if (k && S.trf) { S.trf[k] = e.target.value; } });
@@ -61,7 +61,7 @@ APP.views.transfer = vTransfer;
 Object.assign(ACT, {
   go_transfer: () => { S.tab = 'transfer'; render(); }, trnew: trNewSheet, trdetail: el => trDetail(el.dataset.id), tract: el => trAct(el.dataset.id, el.dataset.a),
   trkind: el => { S.trf.kind = el.dataset.k; S.trf.item = ''; trNewDraw(); },
-  tradd: () => { const f = S.trf, q = dnum(f.qty); if (!f.item || !(q > 0)) return toast('Pilih item dan isi jumlah > 0'); const ex = f.items.find(x => x.item_id === f.item && x.item_type === f.kind); if (ex) ex.qty = r6(ex.qty + q); else f.items.push({item_type: f.kind, item_id: f.item, qty: q}); f.qty = ''; trNewDraw(); },
+  tradd: () => { const f = S.trf, q = dnum(f.qty); if (!f.item || !(q > 0)) return fail('Pilih item dan isi jumlah > 0'); const ex = f.items.find(x => x.item_id === f.item && x.item_type === f.kind); if (ex) ex.qty = r6(ex.qty + q); else f.items.push({item_type: f.kind, item_id: f.item, qty: q}); f.qty = ''; trNewDraw(); },
   trdel: el => { S.trf.items.splice(Number(el.dataset.i), 1); trNewDraw(); }, trsave: el => trSave(el.dataset.aj === '1'),
-  kopen: kasOpen, kmove: kasMove,
+  kopen: kasOpen, kbuka: kasOpenSheet, kmove: kasMove,
 });

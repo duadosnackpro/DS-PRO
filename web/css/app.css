@@ -281,6 +281,16 @@ th{background:var(--sunk);color:var(--ink-2);font-size:13px;font-weight:700}tr:l
 .sheet h2{margin:0 0 var(--s2);font:800 22px var(--head);color:var(--brand)}.sheet h2.c{text-align:center}.sh-h{display:flex;align-items:baseline;justify-content:space-between}
 #toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 80px + env(safe-area-inset-bottom));transform:translate(-50%,10px);background:var(--brand-deep);color:#fff;padding:var(--s3) var(--s4);border-radius:var(--r-md);opacity:0;pointer-events:none;transition:opacity var(--t-med),transform var(--t-med);z-index:60;max-width:90%;text-align:center;box-shadow:var(--float);font-weight:600}
 #toast.show{opacity:1;transform:translate(-50%,0)}
+/* P1 (UX-01, UX-19): galat yang bertahan. #errbar dipakai bila tidak ada sheet; saat sheet terbuka kotaknya dipindah ke dalam sheet (lihat failBox di 01-inti.js). */
+#errbar{position:fixed;top:0;left:0;right:0;z-index:70;padding:env(safe-area-inset-top) var(--px) 0;pointer-events:none}
+#errbar .errbox{pointer-events:auto;max-width:640px;margin:var(--s2) auto 0}
+.errbox{display:flex;align-items:flex-start;gap:var(--s3);background:var(--err-bg);color:var(--err-ink);border:1.5px solid var(--err);border-radius:var(--r-md);padding:var(--s3);font-size:15px;font-weight:600;line-height:1.4;box-shadow:var(--float)}
+.errbox .et{flex:1;min-width:0;overflow-wrap:anywhere}.errbox .et::before{content:"Perhatian: ";font-weight:800}
+.errbox .chip{min-height:44px;flex:none}
+.sheet .errbox{position:sticky;top:0;z-index:2;margin:0 0 var(--s3);box-shadow:none}
+.ferr{color:var(--err-ink);font-size:14px;font-weight:700;line-height:1.4;margin:var(--s1) 0 var(--s2)}.ferr::before{content:"Perlu diperbaiki: ";font-weight:800}
+.inp[aria-invalid="true"]{border-color:var(--err);box-shadow:0 0 0 1px var(--err)}
+.row2>label{flex:1;min-width:0}
 #upd{position:fixed;top:0;left:0;right:0;z-index:50;background:var(--hot-ink);color:#fff;text-align:center;padding:calc(var(--s2) + env(safe-area-inset-top)) var(--s3) var(--s2);font-weight:700}
 #upd button{margin-left:var(--s3);border:0;border-radius:var(--r-sm);min-height:36px;padding:0 var(--s3);background:#fff;color:var(--brand);font-weight:800}
 #bar{position:fixed;top:0;left:0;right:0;height:3px;z-index:30;overflow:hidden;opacity:0;transition:opacity var(--t-med)}
@@ -351,3 +361,12 @@ pre.rc{background:#fff;border-radius:12px;padding:12px;font:12px/1.35 ui-monospa
 .rcaprow{display:flex;align-items:center;justify-content:space-between;gap:var(--s2)}.rcaprow .rcap{flex:1;margin-right:0}
 .wbell{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;border:1.5px solid #B45309;background:var(--warn-bg);color:var(--warn-ink);cursor:pointer;padding:0}
 .wbell b{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:10px;background:#B91C1C;color:#fff;font:700 12px/20px var(--body,system-ui);text-align:center;padding:0 5px}
+/* P2 (UX-04): status kasir di header; (UX-15): aksi utama struk menempel di dasar sheet; (UX-11): halaman Pengaturan */
+.shs{align-self:flex-start;display:inline-flex;align-items:center;position:relative;margin-top:2px;padding:0;border:0;background:none;font:700 12px/1.2 var(--body);color:#EBD6C5;cursor:pointer}
+.shs::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:6px;flex:none}
+.shs::after{content:"";position:absolute;inset:-12px -8px}
+.shs.ok::before{background:#7BE0A0}.shs.warn{color:var(--yel)}.shs.warn::before{background:var(--yel)}
+.shs[hidden]{display:none}
+.sticky-act{position:sticky;bottom:0;z-index:3;margin:var(--s3) calc(-1 * var(--px)) calc(-1 * (var(--s4) + env(safe-area-inset-bottom)));padding:var(--s3) var(--px) calc(var(--s4) + env(safe-area-inset-bottom));background:linear-gradient(rgba(251,247,240,0),var(--paper) 24%)}.sticky-act .btn{margin-top:0}
+.spages{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);margin:0 0 var(--s3)}.spages .chip{min-width:0;padding:var(--s1) var(--s2);font-size:14px;line-height:1.15;border-radius:var(--r-md);white-space:normal}
+.set-card[hidden]{display:none}

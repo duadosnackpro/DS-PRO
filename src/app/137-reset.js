@@ -60,14 +60,14 @@ function rsDone(r, stok) {
 async function rsGo() {
   const o = S.data.outlet, go = /** @type {HTMLButtonElement|null} */ (document.getElementById('rs_go')); if (!o || !go || go.disabled) return;
   const stokEl = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="rs_stok"]:checked')), stok = stokEl ? stokEl.value : 'nol';
-  if (!navigator.onLine) return toast('Perlu koneksi internet untuk reset data');
+  if (!navigator.onLine) return fail('Perlu koneksi internet untuk reset data');
   return busy('Menghapus data transaksi…', async () => {
     try {
       const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'rst-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       const r = await api('data.reset', {terapkan: true, konfirmasi: vOf('rs_code').trim(), alasan: vOf('rs_why').trim(), stok: stok, request_id: rid});
       S.cart = []; LS.set('cart', []); S.rhist = null; VC = {}; S.expLoaded = false;
       await loadData(); await shiftCheck(); S.tab = 'menu'; render(); rsDone(r, stok);
-    } catch (e) { toast(e.auth ? 'Sesi berakhir, silakan masuk lagi' : e.message); }
+    } catch (e) { fail(e.auth ? 'Sesi berakhir, silakan masuk lagi' : e.message); }
   });
 }
 document.addEventListener('input', e => { const t = /** @type {HTMLElement} */ (e.target); if (S.tab === 'reset' && t && (t.id === 'rs_why' || t.id === 'rs_code')) rsCheck(); });

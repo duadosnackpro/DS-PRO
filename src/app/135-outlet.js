@@ -12,12 +12,12 @@ function outletSheet() {
 }
 async function outletPick(id) {
   if (S.data.outlet && id === S.data.outlet.id) return closeSheet();
-  if (S.cart.length && !confirm('Keranjang berisi ' + S.cart.length + ' item dan akan dikosongkan karena pindah outlet. Lanjutkan?')) return;
+  if (S.cart.length && !await askConfirm('Pindah outlet?', 'Keranjang berisi ' + S.cart.length + ' item dan akan dikosongkan.', 'Pindah dan kosongkan', {danger: true, cancel: 'Tetap di sini'})) return;
   await busy('Memuat outlet…', async () => {
     try {
       await api('outlet.use', {id: id}); S.cart = []; LS.set('cart', []); S.rhist = null; VC = {}; S.users = null; S.expLoaded = false;
       await loadData(); closeSheet(); S.tab = homeTab(); render(); toast('Outlet aktif: ' + outletName());
-    } catch (e) { toast(e.message); }
+    } catch (e) { fail(e.message); }
   });
 }
 function vOutlets() {
@@ -40,7 +40,7 @@ async function oeditSheet(id) {
 async function oSave(id) {
   return busy('Menyimpan outlet…', async () => {
     const d = readForm(); if (id) d.id = id;
-    try { await api(id ? 'outlet.update' : 'outlet.create', d); await loadData(); closeSheet(); render(); toast(id ? 'Outlet diperbarui' : 'Outlet dibuat'); } catch (e) { toast(e.message); }
+    try { await api(id ? 'outlet.update' : 'outlet.create', d); await loadData(); closeSheet(); render(); toast(id ? 'Outlet diperbarui' : 'Outlet dibuat'); } catch (e) { fail(e.message); }
   });
 }
 MENU_TABS.push('outlets'); APP.views.outlets = vOutlets;

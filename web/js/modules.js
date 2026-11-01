@@ -1,7 +1,7 @@
 /* Modul Owner: Beranda (dashboard), Produksi + Resep (HPP produksi), Laporan, Impor Shopee. Memakai API di app.js lewat window.APP. */
 (function () {
 'use strict';
-const A = window.APP, S = A.S, $ = A.$, api = A.api, rp = A.rp, num = A.num, esc = A.esc, LS = A.LS, T = A.T, sheet = A.sheet, closeSheet = A.closeSheet, toast = A.toast, busy = A.busy, skel = A.skel, ACT = A.ACT;
+const A = window.APP, S = A.S, $ = A.$, api = A.api, rp = A.rp, num = A.num, esc = A.esc, LS = A.LS, T = A.T, sheet = A.sheet, closeSheet = A.closeSheet, toast = A.toast, fail = A.fail, busy = A.busy, skel = A.skel, ACT = A.ACT;
 const set = k => S.data.settings[k];
 const mById = id => S.data.materials.find(m => m.id === id);
 const pct = n => (Math.round(Number(n) * 10) / 10).toLocaleString('id-ID') + '%';
@@ -150,7 +150,7 @@ function prodDetail(id) {
 }
 function prodDone(id) {
   const o = S.prod.find(x => x.id === id), rec = S.data.recipes.find(r => r.id === o.recipe_id);
-  if (!rec) return toast('Resep produksi ini sudah dihapus');
+  if (!rec) return fail('Resep produksi ini sudah dihapus');
   S.pd = {id: id, qty: String(o.qty_standar), tk: '', oh: ''};
   sheet('<h2>Selesaikan produksi</h2><p class="muted">' + esc(vLabel(o.variant_id)) + ' · ' + num(o.jumlah_batch) + ' batch · standar ' + num(o.qty_standar) + ' unit</p><label>Hasil aktual (unit jadi)<input class="inp" data-pd="qty" inputmode="decimal" value="' + esc(S.pd.qty) + '"></label>' +
     '<div class="row2"><div style="flex:1"><label>Tenaga kerja (Rp)<input class="inp" data-pd="tk" inputmode="numeric" placeholder="otomatis"></label></div><div style="flex:1"><label>Overhead (Rp)<input class="inp" data-pd="oh" inputmode="numeric" placeholder="otomatis"></label></div></div><div id="pdv"></div><button class="btn pri" id="pdbtn" data-act="pdosave">Selesaikan dan masukkan ke stok</button>');
@@ -285,7 +285,7 @@ function runReport() {
   }, {fail: e => { if ($('#rres')) $('#rres').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }});
 }
 function csvText(r) { const q = x => '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; return [r.columns.map(q).join(',')].concat(r.rows.map(row => row.map(q).join(','))).join('\r\n'); }
-function download(name, text) { try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF' + text], {type: 'text/csv;charset=utf-8'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); } catch (e) { toast('Unduh tidak didukung di perangkat ini'); } }
+function download(name, text) { try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF' + text], {type: 'text/csv;charset=utf-8'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); } catch (e) { fail('Unduh tidak didukung di perangkat ini'); } }
 function reportText(r) { return [(set('nama_usaha') || 'Duado Snack') + ' - ' + r.title, r.from + ' s/d ' + r.to].concat(r.summary.map(s => s.label + ': ' + fmtCell(s.value, s.fmt)), r.rows.slice(0, 12).map(row => row.map((v, i) => r.fmt[i] === 'txt' ? v : v == null ? '-' : fmtCell(v, r.fmt[i])).join(' | '))).join('\n'); }
 
 /* ---------- Impor Shopee (CSV) ---------- */
@@ -313,7 +313,7 @@ function normDate(s) {
   m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? s + ' 12:00:00' : '';
 }
 function shLoad(text) {
-  const rows = parseCSV(text); if (rows.length < 2) { toast('File CSV kosong atau tidak terbaca'); return; }
+  const rows = parseCSV(text); if (rows.length < 2) { fail('File CSV kosong atau tidak terbaca'); return; }
   const header = rows[0].map(x => String(x).trim()), map = {};
   SM.forEach(m => { let idx = -1; for (const re of m[2]) { idx = header.findIndex(h => re.test(h)); if (idx >= 0) break; } map[m[0]] = idx; });
   S.sh = {header: header, data: rows.slice(1), map: map}; S.shRes = null; vShopee();
@@ -343,7 +343,7 @@ function vShopee() {
   $('#main').innerHTML = h;
 }
 async function shGo() {
-  const b = shBuild(); if (!b.orders.length) return toast('Tidak ada pesanan yang bisa diimpor'); const tot = {ok: 0, duplikat: 0, gagal: []}, ign = $('#sh_ign').checked;
+  const b = shBuild(); if (!b.orders.length) return fail('Tidak ada pesanan yang bisa diimpor'); const tot = {ok: 0, duplikat: 0, gagal: []}, ign = $('#sh_ign').checked;
   await busy('Mengimpor 0/' + b.orders.length + ' pesanan…', async () => {
     for (let i = 0; i < b.orders.length; i += 20) {
       const chunk = b.orders.slice(i, i + 20);
@@ -398,15 +398,15 @@ async function stockAudit() {
 /* ---------- Aksi ---------- */
 Object.assign(ACT, {
   caudit: stockAudit, cekgo: el => { const t = el.dataset.t; if (t === 'resep' || t === 'stok') S.tab = t; else { S.mt = t; S.tab = 'master'; } A.render(); },
-  srec: el => busy('Memproses…', async () => { try { await api('sale.recover', {id: el.dataset.id, aksi: el.dataset.a}); await A.loadData(); toast(el.dataset.a === 'selesai' ? 'Transaksi diselesaikan' : 'Transaksi dibatalkan'); stockAudit(); } catch (e) { toast(e.message); } }),
-  creco: el => busy('Menyelaraskan riwayat…', async () => { try { await api('stock.reconcile', {tipe: el.dataset.t, id: el.dataset.id}); toast('Riwayat disesuaikan'); stockAudit(); } catch (e) { toast(e.message); } }),
+  srec: el => busy('Memproses…', async () => { try { await api('sale.recover', {id: el.dataset.id, aksi: el.dataset.a}); await A.loadData(); toast(el.dataset.a === 'selesai' ? 'Transaksi diselesaikan' : 'Transaksi dibatalkan'); stockAudit(); } catch (e) { fail(e.message); } }),
+  creco: el => busy('Menyelaraskan riwayat…', async () => { try { await api('stock.reconcile', {tipe: el.dataset.t, id: el.dataset.id}); toast('Riwayat disesuaikan'); stockAudit(); } catch (e) { fail(e.message); } }),
   dp: el => { const again = el.dataset.p === S.dp; S.dp = el.dataset.p; vDash(again); },
   bar: el => { const s = (S.dser || [])[Number(el.dataset.i)], bt = $('#bt'); if (!s || !bt) return; bt.innerHTML = '<b>' + esc(idDate(s.d)) + '</b> · Omzet <b>' + rp(s.omzet) + '</b> · Laba kotor <b>' + rp(s.laba) + '</b>'; document.querySelectorAll('.bchart [data-b]').forEach(r => { r.style.opacity = r.dataset.b === el.dataset.i ? 1 : .35; }); },
   rpre: el => { S.rpre = el.dataset.p; if (S.rpre !== 'custom') setPreset(); vLaporan(S.rpre === 'custom'); },
   pnew: prodNew, pjenis: el => { S.pform.jenis = el.dataset.j; prodNew(); },
-  psave: () => busy('Menyimpan rencana…', async () => { try { await api('production.create', {recipe_id: S.pform.recipe, jumlah_batch: N(S.pform.batch), jenis: S.pform.jenis, catatan: S.pform.catatan}); closeSheet(); toast('Rencana produksi tersimpan'); vProduksi(); } catch (e) { toast(e.message); } }),
+  psave: () => busy('Menyimpan rencana…', async () => { try { await api('production.create', {recipe_id: S.pform.recipe, jumlah_batch: N(S.pform.batch), jenis: S.pform.jenis, catatan: S.pform.catatan}); closeSheet(); toast('Rencana produksi tersimpan'); vProduksi(); } catch (e) { fail(e.message); } }),
   pdetail: el => prodDetail(el.dataset.id), pdone: el => prodDone(el.dataset.id),
-  pcancel: el => { if (!confirm('Batalkan rencana produksi ini?')) return; return busy('Membatalkan…', async () => { try { await api('production.cancel', {id: el.dataset.id}); closeSheet(); vProduksi(); } catch (e) { toast(e.message); } }); },
+  pcancel: async el => { if (!await A.askConfirm('Batalkan rencana produksi?', 'Rencana ini tidak akan diproduksi.', 'Batalkan rencana', {danger: true, cancel: 'Kembali'})) return; return busy('Membatalkan…', async () => { try { await api('production.cancel', {id: el.dataset.id}); closeSheet(); vProduksi(); } catch (e) { fail(e.message); } }); },
   pdosave: () => busy('Menyelesaikan produksi…', async () => {
     try {
       const r = await api('production.complete', {id: S.pd.id, qty_hasil: N(S.pd.qty), tenaga_kerja: S.pd.tk === '' ? '' : N(S.pd.tk), overhead: S.pd.oh === '' ? '' : N(S.pd.oh)});
@@ -414,13 +414,13 @@ Object.assign(ACT, {
       LS.set('data', S.data); closeSheet(); toast('Produksi selesai. HPP per unit ' + rp(r.costs.hpp_per_unit)); vProduksi();
     } catch (e) {
       /* F-08: server menolak bahan tanpa harga. Supervisor/owner boleh melanjutkan dengan sengaja (mis. bahan memang gratis). */
-      if (/belum punya harga/.test(e.message || '') && A.can('approve') && confirm(e.message + '\n\nLanjutkan tanpa harga bahan itu? HPP produk akan lebih rendah dari sebenarnya.')) {
+      if (/belum punya harga/.test(e.message || '') && A.can('approve') && await A.busyPause(() => A.askConfirm('Bahan belum punya harga', e.message + ' Lanjutkan tanpa harga bahan itu? HPP produk akan lebih rendah dari sebenarnya.', 'Lanjutkan', {danger: true, cancel: 'Kembali'}))) {
         try { const r2 = await api('production.complete', {id: S.pd.id, qty_hasil: N(S.pd.qty), tenaga_kerja: S.pd.tk === '' ? '' : N(S.pd.tk), overhead: S.pd.oh === '' ? '' : N(S.pd.oh), izinkan_bahan_tanpa_harga: true});
           r2.materials.forEach(u => { const m = mById(u.id); if (m) m.stok = u.stok; }); const v2 = A.vById(r2.variant.id); if (v2) { v2.stok = r2.variant.stok; v2.hpp_rata2 = r2.variant.hpp_rata2; }
-          LS.set('data', S.data); closeSheet(); toast('Produksi selesai. HPP per unit ' + rp(r2.costs.hpp_per_unit)); vProduksi(); } catch (e2) { toast(e2.message); }
+          LS.set('data', S.data); closeSheet(); toast('Produksi selesai. HPP per unit ' + rp(r2.costs.hpp_per_unit)); vProduksi(); } catch (e2) { fail(e2.message); }
         return;
       }
-      toast(e.message);
+      fail(e.message);
     }
   }),
   /* F-08: perbaiki HPP kosong pada penjualan periode Beranda: pratinjau dampak dulu, baru terapkan (hanya Owner/Admin; tercatat di audit). */
@@ -430,28 +430,28 @@ Object.assign(ACT, {
     const R = S.dashRange; if (!R) return;
     try {
       const pre = await api('hpp.backfill', {from: R.from, to: R.to, terapkan: false});
-      if (!pre.baris) return toast(pre.tanpa_harga ? pre.tanpa_harga + ' baris belum bisa diperbaiki karena HPP produknya masih kosong. Isi HPP lewat Stok dulu.' : 'Tidak ada baris yang perlu diperbaiki.');
-      if (!confirm(pre.baris + ' baris penjualan (' + R.from + ' s/d ' + R.to + ') akan diberi HPP rata-rata saat ini. Perkiraan tambahan HPP: ' + rp(pre.dampak_hpp) + ' (laba periode ini turun sebesar itu). Terapkan?')) return;
+      if (!pre.baris) return fail(pre.tanpa_harga ? pre.tanpa_harga + ' baris belum bisa diperbaiki karena HPP produknya masih kosong. Isi HPP lewat Stok dulu.' : 'Tidak ada baris yang perlu diperbaiki.');
+      if (!await A.busyPause(() => A.askConfirm('Perbaiki HPP ' + pre.baris + ' baris?', 'Penjualan ' + R.from + ' s/d ' + R.to + ' diberi HPP rata-rata saat ini. HPP bertambah sekitar ' + rp(pre.dampak_hpp) + ', laba periode ini turun sebesar itu.', 'Terapkan', {cancel: 'Kembali'}))) return;
       await api('hpp.backfill', {from: R.from, to: R.to, terapkan: true}); toast('HPP diperbaiki'); vDash(true);
-    } catch (e) { toast(e.message); }
+    } catch (e) { fail(e.message); }
   }),
   redit: el => redit(el.dataset.id),
   rdup: el => dupSheet(el.dataset.id),
-  dpsave: () => { const ids = Object.keys(S.dp2.sel).filter(k => S.dp2.sel[k]); if (!ids.length) return toast('Pilih minimal satu varian tujuan');
-    return busy('Membuat salinan resep…', async () => { try { const r = await api('recipe.copy', {source_id: S.dp2.src, targets: ids.map(id => ({variant_id: id, nama: dupName(A.vById(id))}))}); await A.loadData(); closeSheet(); A.render(); toast(r.dibuat.length + ' resep dibuat. Periksa jumlah bahan tiap varian.'); } catch (e) { toast(e.message); } }); },
+  dpsave: () => { const ids = Object.keys(S.dp2.sel).filter(k => S.dp2.sel[k]); if (!ids.length) return fail('Pilih minimal satu varian tujuan');
+    return busy('Membuat salinan resep…', async () => { try { const r = await api('recipe.copy', {source_id: S.dp2.src, targets: ids.map(id => ({variant_id: id, nama: dupName(A.vById(id))}))}); await A.loadData(); closeSheet(); A.render(); toast(r.dibuat.length + ' resep dibuat. Periksa jumlah bahan tiap varian.'); } catch (e) { fail(e.message); } }); },
   riadd: () => {
     const mm = mById(S.ri.m), a = unitAlt(mm); let q = N(S.ri.q);
-    if (!mm) return toast('Pilih bahan terlebih dahulu'); if (!(q > 0)) return toast('Isi jumlah lebih dari 0. Boleh desimal, mis. 0,5');
+    if (!mm) return fail('Pilih bahan terlebih dahulu', '#ri_m'); if (!(q > 0)) return fail('Isi jumlah lebih dari 0. Boleh desimal, mis. 0,5', '#ri_q');
     if (S.ri.u === 'sub' && a) q = q / a.f; q = r6(q); const ex = S.rf.items.find(i => i.material_id === mm.id);
     if (ex) ex.qty = r6(ex.qty + q); else S.rf.items.push({material_id: mm.id, qty: q}); S.ri.q = ''; S.ri.u = 'main'; rfSheet(); toast(mm.nama + ' ditambahkan');
   },
   riq: el => { S.ri.q = String(el.dataset.q).replace('.', ','); const i = $('#ri_q'); if (i) i.value = S.ri.q; riRefresh(false); },
   rimat: () => { closeSheet(); S.mt = 'materials'; S.tab = 'master'; A.render(); },
-  rhpp: () => { const f = S.rf, v = A.vById(f.variant_id), c = costOf(f.items, {tenaga_kerja: f.tenaga_kerja}, 1, N(f.hasil_standar), '', ''); if (!v || !confirm('Set HPP produk menjadi ' + rp(c.hpp) + ' (stok tidak berubah)?')) return;
-    return busy('Menyimpan HPP…', async () => { try { const r = await api('stock.adjust', {tipe: 'varian', id: v.id, stok_baru: Number(v.stok) || 0, hpp: Math.round(c.hpp * 100) / 100, alasan: 'HPP awal dari estimasi resep'}); v.hpp_rata2 = r.hpp_rata2; LS.set('data', S.data); rfv(); toast('HPP produk diperbarui'); } catch (e) { toast(e.message); } }); },
+  rhpp: async () => { const f = S.rf, v = A.vById(f.variant_id), c = costOf(f.items, {tenaga_kerja: f.tenaga_kerja}, 1, N(f.hasil_standar), '', ''); if (!v || !await A.askConfirm('Set HPP produk?', 'HPP menjadi ' + rp(c.hpp) + '. Stok tidak berubah.', 'Set HPP', {cancel: 'Kembali'})) return;
+    return busy('Menyimpan HPP…', async () => { try { const r = await api('stock.adjust', {tipe: 'varian', id: v.id, stok_baru: Number(v.stok) || 0, hpp: Math.round(c.hpp * 100) / 100, alasan: 'HPP awal dari estimasi resep'}); v.hpp_rata2 = r.hpp_rata2; LS.set('data', S.data); rfv(); toast('HPP produk diperbarui'); } catch (e) { fail(e.message); } }); },
   ridel: el => { S.rf.items.splice(el.dataset.i, 1); rfSheet(); },
-  rsave: () => busy('Menyimpan resep…', async () => { try { const f = S.rf; const rr = await api('recipe.save', {id: f.id || undefined, variant_id: f.variant_id, nama: f.nama, hasil_standar: N(f.hasil_standar), jenis: f.jenis, tenaga_kerja: N(f.tenaga_kerja) || 0, items: f.items}); if (!A.patchRecipe(rr)) await A.loadData(); closeSheet(); A.render(); toast('Resep tersimpan'); } catch (e) { toast(e.message); } }),
-  rdel: () => { if (!confirm('Hapus resep ini?')) return; return busy('Menghapus…', async () => { try { await api('master.remove', {table: 'recipes', id: S.rf.id}); await A.loadData(); closeSheet(); A.render(); } catch (e) { toast(e.message); } }); },
+  rsave: () => busy('Menyimpan resep…', async () => { try { const f = S.rf; const rr = await api('recipe.save', {id: f.id || undefined, variant_id: f.variant_id, nama: f.nama, hasil_standar: N(f.hasil_standar), jenis: f.jenis, tenaga_kerja: N(f.tenaga_kerja) || 0, items: f.items}); if (!A.patchRecipe(rr)) await A.loadData(); closeSheet(); A.render(); toast('Resep tersimpan'); } catch (e) { fail(e.message); } }),
+  rdel: async () => { if (!await A.askConfirm('Hapus resep ini?', 'Resep yang dihapus tidak bisa dikembalikan dari aplikasi.', 'Hapus resep', {danger: true, cancel: 'Kembali'})) return; return busy('Menghapus…', async () => { try { await api('master.remove', {table: 'recipes', id: S.rf.id}); await A.loadData(); closeSheet(); A.render(); } catch (e) { fail(e.message); } }); },
   rt: el => { S.rt = el.dataset.t; vLaporan(); }, rrun: runReport,
   rcsv: () => S.rres && download('laporan-' + S.rres.type + '-' + S.rres.to + '.csv', csvText(S.rres)),
   rwa: () => S.rres && window.open('https://wa.me/?text=' + encodeURIComponent(reportText(S.rres)), '_blank'),

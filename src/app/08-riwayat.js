@@ -26,7 +26,7 @@ async function vRiwayat() {
   S.rmore = async () => { // halaman berikutnya dari server; hindari ganda lewat id (transaksi baru menggeser urutan)
     const e = S.rcur; if (!e || !e.srv || e.loading || e.rows.length >= e.total) return; e.loading = true;
     try { const r = await api('sales.list', {tanggal: day, limit: PGN.hist, offset: e.rows.length}, {silent: true}); if (r && r.rows) { const seen = new Set(e.rows.map(x => x.id)); r.rows.forEach(x => { if (!seen.has(x.id)) e.rows.push(x); }); e.total = r.total; } }
-    catch (er) { toast('Gagal memuat transaksi berikutnya: ' + er.message); } finally { e.loading = false; if (S.rcur === e) paintList(e); }
+    catch (er) { fail('Gagal memuat transaksi berikutnya: ' + er.message); } finally { e.loading = false; if (S.rcur === e) paintList(e); }
   };
   try {
     if (ent) paint(ent); // tampil seketika dari hasil terakhir; diperbarui hanya bila ada data baru

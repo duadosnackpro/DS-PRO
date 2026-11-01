@@ -33,6 +33,10 @@ jobs:
         run: npm run test:rt
       - name: Uji printer Bluetooth
         run: npm run test:bt
+      - name: Uji P1 UX (galat bertahan, label kas, tombol Kembali)
+        run: npm run test:p1
+      - name: Uji P2 UX (konfirmasi dalam aplikasi, status kasir, Pengaturan, struk)
+        run: npm run test:p2
       - name: Uji logika kewenangan Edge Function
         run: npm run test:edge
   db:

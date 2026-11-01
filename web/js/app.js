@@ -43,7 +43,7 @@ const Store = (() => {
   return {
     init: init, flush: flushNow, mode: () => idb ? 'IndexedDB' : 'localStorage',
     get: (k, d) => mem[k] == null ? d : mem[k],
-    set: (k, v, now) => { mem[k] = v; if (idb) { if (CRIT.indexOf(k) >= 0) journal(k, {v: v}); dirty[k] = 1; if (now) flushNow(); else { clearTimeout(timer); timer = setTimeout(flushNow, 400); } } else { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { toast('Penyimpanan perangkat penuh'); } } },
+    set: (k, v, now) => { mem[k] = v; if (idb) { if (CRIT.indexOf(k) >= 0) journal(k, {v: v}); dirty[k] = 1; if (now) flushNow(); else { clearTimeout(timer); timer = setTimeout(flushNow, 400); } } else { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { fail('Penyimpanan perangkat penuh'); } } },
     del: k => { delete mem[k]; if (idb) { if (CRIT.indexOf(k) >= 0) journal(k, {x: 1}); dirty[k] = 2; if (CRIT.indexOf(k) >= 0) flushNow(); else { clearTimeout(timer); timer = setTimeout(flushNow, 400); } } else { try { localStorage.removeItem(k); } catch (e) {} } }
   };
 })();
@@ -116,6 +116,35 @@ function watchMore() {
   els.forEach(e => moreIO.observe(e));
 }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.className = 'show'; clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 2600); }
+/* P1 (UX-01, UX-19): galat tidak boleh hilang sendiri. toast() hanya untuk kabar baik dan info singkat. Pesan bahwa sebuah aksi GAGAL atau DITOLAK memakai fail():
+   - tanpa `field`: kotak role="alert" dengan tombol Tutup, bertahan sampai ditutup. Di dalam sheet bila sheet terbuka (terjangkau keyboard, tidak melanggar jebakan fokus), selain itu di spanduk #errbar.
+   - dengan `field` (selector kolom): pesan di bawah kolom, kolom diberi aria-invalid + aria-describedby lalu difokuskan; hilang saat kolom diubah. Satu galat tampil pada satu waktu. */
+let failSeq = 0;
+function failClear() {
+  S.err = null;
+  document.querySelectorAll('.errbox,.ferr').forEach(x => x.remove());
+  document.querySelectorAll('[aria-invalid="true"]').forEach(x => { x.removeAttribute('aria-invalid'); if (/^fe\d+$/.test(x.getAttribute('aria-describedby') || '')) x.removeAttribute('aria-describedby'); });
+}
+function failBox() { // (re)pasang kotak galat dari S.err: di sheet yang terbuka, atau di #errbar
+  if (!S.err) return;
+  const sh = $('#sheet'), d = sh && !sh.hidden ? sh.querySelector('.sheet') : null, bar = $('#errbar');
+  document.querySelectorAll('.errbox').forEach(x => x.remove());
+  const box = document.createElement('div'); box.className = 'errbox'; box.setAttribute('role', 'alert');
+  box.innerHTML = '<span class="et">' + esc(S.err) + '</span><button type="button" class="chip" data-act="errx">Tutup</button>';
+  if (d) { const h = d.querySelector('h2'); d.insertBefore(box, h ? h.nextSibling : d.firstChild); } else if (bar) bar.appendChild(box);
+}
+function fail(m, field) {
+  clearTimeout(/** @type {any} */ (toast).t); const t = $('#toast'); if (t) t.className = ''; // galat menggantikan toast info yang sedang tampil
+  m = String(m == null ? '' : m).trim() || 'Terjadi kesalahan. Coba lagi.'; // pesan kosong tidak boleh menjadi kotak kosong
+  const el = field ? /** @type {HTMLElement|null} */ (document.querySelector(field)) : null;
+  failClear();
+  if (!el || !el.isConnected) { S.err = m; failBox(); return; }
+  const host = el.closest('label') || el, par = host.parentElement, at = par && par.classList.contains('row2') ? par : host; // pesan di luar <label> agar tidak ikut menjadi nama kolom
+  const p = document.createElement('div'); p.className = 'ferr'; p.id = 'fe' + (++failSeq); p.setAttribute('role', 'alert'); p.textContent = m;
+  at.insertAdjacentElement('afterend', p);
+  el.setAttribute('aria-invalid', 'true'); el.setAttribute('aria-describedby', p.id);
+  try { el.focus(); el.scrollIntoView({block: 'nearest'}); } catch (e) { /* kolom tak bisa difokuskan: pesan tetap tampil */ }
+}
 /* A: selama sheet terbuka, halaman di belakangnya tidak boleh terbaca pembaca layar maupun terjangkau Tab/ketuk (inert + aria-hidden). */
 function bgInert(on) { ['app', 'upd'].forEach(id => { const e = document.getElementById(id); if (!e) return; if (on) { e.setAttribute('inert', ''); e.setAttribute('aria-hidden', 'true'); } else { e.removeAttribute('inert'); e.removeAttribute('aria-hidden'); } }); }
 function sheet(html) {
@@ -125,7 +154,30 @@ function sheet(html) {
   if (!d) return;
   if (h) { h.id = 'sheet-h'; d.setAttribute('aria-labelledby', 'sheet-h'); } else d.setAttribute('aria-label', 'Dialog'); // nama dialog = judulnya, bukan kata generik
   if (opening) d.focus({preventScroll: true}); // fokus masuk ke dialog (wadah, bukan kolom isian: keyboard layar tidak muncul sendiri)
+  if (S.err) failBox(); // galat yang masih berlaku ikut pindah ke sheet (sheet dirender ulang atau baru dibuka)
 }
+/* P2 (UX-06): pengganti confirm() bawaan browser. askConfirm(judul, pesan, labelOk, {danger, cancel}) -> Promise<boolean>.
+   Bila sudah ada sheet terbuka (mis. form edit), isinya DITAHAN (bukan dihancurkan) selama konfirmasi tampil lalu dipasang lagi saat Batal, jadi isian yang sudah diketik tidak hilang.
+   Esc, ketuk latar, dan tombol Kembali = Batal. Tombol utama di atas (tindakan yang disarankan), Batal di bawah; danger:true = merah (hapus/tolak/batalkan). */
+function askConfirm(title, msg, okLabel, o) {
+  o = o || {};
+  return new Promise(res => {
+    const b = $('#sheet'), prev = !b.hidden ? document.createDocumentFragment() : null, qo = S.qopen;
+    if (prev) while (b.firstChild) prev.appendChild(b.firstChild);
+    S.opin = {res: v => res(!!v), kind: 'konfirm', prev: prev, qopen: qo}; S.qopen = false; // qopen=false: badge() tidak menimpa sheet ini dengan daftar antrean
+    sheet('<div class="grab"></div><h2>' + esc(title) + '</h2><p class="muted">' + esc(msg) + '</p><button class="btn ' + (o.danger ? 'dan' : 'pri') + '" data-act="cf_ok">' + esc(okLabel || 'Lanjutkan') + '</button><button class="btn sec" data-act="cf_no">' + esc(o.cancel || 'Batal') + '</button>');
+    const bg = b.querySelector('.sheet-bg'); if (bg) bg.setAttribute('data-act', 'cf_no'); // ketuk latar = Batal (bukan menutup seluruh sheet di bawahnya)
+    const d = /** @type {HTMLElement|null} */ (b.querySelector('.sheet')); if (d) d.focus({preventScroll: true});
+  });
+}
+function cfDone(ok) {
+  const o = S.opin; if (!o || o.kind !== 'konfirm') return;
+  S.opin = null; const b = $('#sheet');
+  if (o.prev) { failClear(); b.innerHTML = ''; b.appendChild(o.prev); S.qopen = o.qopen; const d = /** @type {HTMLElement|null} */ (b.querySelector('.sheet')); if (d) d.focus({preventScroll: true}); } // sheet semula kembali apa adanya
+  else closeSheet();
+  o.res(ok);
+}
+const dismissSheet = () => { if (S.opin && S.opin.kind === 'konfirm') cfDone(false); else closeSheet(); }; // Esc, Kembali: konfirmasi = Batal, selain itu tutup
 /* Tab tetap berputar di dalam dialog yang terbuka (aria-modal): tanpa ini Tab keluar ke halaman di belakang sheet. */
 function trapTab(/** @type {KeyboardEvent} */ e) {
   const b = $('#sheet'); if (!b || b.hidden || S.busyOn) return;
@@ -137,7 +189,7 @@ function trapTab(/** @type {KeyboardEvent} */ e) {
   else if (e.shiftKey && a === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && a === last) { e.preventDefault(); first.focus(); }
 }
-function closeSheet() { if (S.opin) { const r = S.opin.res; S.opin = null; r(null); } const b = $('#sheet'); S.qopen = false; b.hidden = true; b.innerHTML = ''; bgInert(false); try { const f = S.sheetFrom; S.sheetFrom = null; if (f && f.isConnected && f.focus) f.focus({preventScroll: true}); } catch (e) {} if (S.deferRender) { S.deferRender = false; render(); } if (S.conflictPending) setTimeout(notifyConflicts, 250); }
+function closeSheet() { if (S.opin) { const r = S.opin.res; S.opin = null; r(null); } const b = $('#sheet'); S.qopen = false; if (!b.hidden) failClear(); b.hidden = true; b.innerHTML = ''; bgInert(false); try { const f = S.sheetFrom; S.sheetFrom = null; if (f && f.isConnected && f.focus) f.focus({preventScroll: true}); } catch (e) {} if (S.deferRender) { S.deferRender = false; render(); } if (S.conflictPending) setTimeout(notifyConflicts, 250); }
 
 /* ---------- API dan sinkronisasi ---------- */
 let pending = 0;
@@ -154,9 +206,15 @@ async function api(action, payload, opt) {
 }
 /* Animasi loading: overlay untuk aksi simpan/muat ulang, bar di atas untuk semua panggilan server, skeleton untuk daftar */
 async function busy(label, fn) {
-  if (S.busyOn) return; S.busyOn = true;
+  if (S.busyOn) return; S.busyOn = true; failClear(); // aksi baru dimulai: galat dari percobaan sebelumnya tidak lagi berlaku
   const el = $('#busy'); el.innerHTML = '<div class="busybox"><div class="loader"></div><div class="lbl">' + esc(label) + '</div></div>'; el.hidden = false;
   try { return await fn(); } finally { S.busyOn = false; el.hidden = true; el.innerHTML = ''; if (S.conflictPending && $('#sheet').hidden) setTimeout(notifyConflicts, 400); }
+}
+/* P2: dialog (mis. konfirmasi) di tengah aksi yang sedang `busy`: sembunyikan overlay dan buka kuncinya selama menunggu jawaban, lalu pasang lagi. */
+async function busyPause(fn) {
+  const el = $('#busy'), was = S.busyOn; if (!was) return fn();
+  S.busyOn = false; el.hidden = true;
+  try { return await fn(); } finally { S.busyOn = true; el.hidden = false; }
 }
 function busyLabel(t) { const l = document.querySelector('#busy .lbl'); if (l) l.textContent = t; }
 const skel = n => Array.from({length: n || 3}, () => '<div class="sk"></div>').join('');
@@ -604,10 +662,10 @@ function logoEdit(el) {
 }
 async function logoLoad(file) {
   if (!file) return;
-  if (!/^image\//.test(file.type || '')) return toast('Pilih file gambar (PNG, JPG, atau WebP)');
-  if (file.size > 10 * 1024 * 1024) return toast('Gambar terlalu besar (maks. 10 MB)');
-  let src; try { src = typeof createImageBitmap === 'function' ? await createImageBitmap(file) : await loadImg(file); } catch (e1) { try { src = await loadImg(file); } catch (e2) { return toast('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.'); } }
-  const sw = src.width || src.naturalWidth, sh = src.height || src.naturalHeight; if (!sw || !sh) return toast('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.');
+  if (!/^image\//.test(file.type || '')) return fail('Pilih file gambar (PNG, JPG, atau WebP)');
+  if (file.size > 10 * 1024 * 1024) return fail('Gambar terlalu besar (maks. 10 MB)');
+  let src; try { src = typeof createImageBitmap === 'function' ? await createImageBitmap(file) : await loadImg(file); } catch (e1) { try { src = await loadImg(file); } catch (e2) { return fail('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.'); } }
+  const sw = src.width || src.naturalWidth, sh = src.height || src.naturalHeight; if (!sw || !sh) return fail('Gambar tidak bisa dibaca. Gunakan PNG atau JPG.');
   const k = Math.min(1, 1152 / Math.max(sw, sh)), rw = Math.max(1, Math.round(sw * k)), rh = Math.max(1, Math.round(sh * k));
   const base = logoDraw(src, sw, sh, rw, rh); if (src.close) { try { src.close(); } catch (e3) {} }
   const sk = Math.min(1, 96 / Math.max(rw, rh)), sc = logoDraw(base, rw, rh, Math.max(1, Math.round(rw * sk)), Math.max(1, Math.round(rh * sk))), sd = sc.getContext('2d').getImageData(0, 0, sc.width, sc.height).data;
@@ -629,12 +687,12 @@ function logoSheet() {
 }
 function logoSave() {
   const e = LGE; if (!e || !e.out) return; const first = !logoGet();
-  return busy('Menyimpan logo…', async () => { try { await api('setting.logo', {data: logoEncode(e.out), aktif: first}); await loadData(); closeSheet(); render(); toast('Logo disimpan'); } catch (er) { toast(er.message); } });
+  return busy('Menyimpan logo…', async () => { try { await api('setting.logo', {data: logoEncode(e.out), aktif: first}); await loadData(); closeSheet(); render(); toast('Logo disimpan'); } catch (er) { fail(er.message); } });
 }
-function logoDel() {
-  if (S.dirty) return toast('Simpan perubahan pengaturan dulu.');
-  if (!confirm('Hapus logo struk?')) return;
-  return busy('Menghapus logo…', async () => { try { await api('setting.logo', {data: ''}); await loadData(); render(); toast('Logo dihapus'); } catch (er) { toast(er.message); } });
+async function logoDel() {
+  if (S.dirty) return fail('Simpan perubahan pengaturan dulu.');
+  if (!await askConfirm('Hapus logo struk?', 'Struk kembali mencetak nama usaha sebagai judul.', 'Hapus logo', {danger: true})) return;
+  return busy('Menghapus logo…', async () => { try { await api('setting.logo', {data: ''}); await loadData(); render(); toast('Logo dihapus'); } catch (er) { fail(er.message); } });
 }
 function logoCard() { // isi kartu "Logo struk" di Pengaturan (di luar tombol-tombol sakelar)
   const lg = logoGet(), url = lg ? logoURL(lg) : '';
@@ -666,7 +724,7 @@ function waSend(rc, number) {
 async function copyText(t, msg) {
   msg = msg || 'Struk disalin. Tempel di WhatsApp atau aplikasi lain.';
   try { await navigator.clipboard.writeText(t); toast(msg); }
-  catch (e) { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (x) {} ta.remove(); toast(ok ? msg : 'Tidak bisa menyalin.'); }
+  catch (e) { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (x) {} ta.remove(); if (ok) toast(msg); else fail('Tidak bisa menyalin.'); }
 }
 async function shareRc(rc) {
   const text = receiptText(rc);
@@ -903,12 +961,12 @@ function btPrintQ(rc, o) { // semua cetak (otomatis, tombol, uji) masuk satu ant
   if (key) BT.pend[key] = 1;
   const bytes = escpos(rc), auto = !!(o && o.auto);
   toast(BT.busy ? 'Masuk antrean cetak…' : 'Mencetak ke printer…');
-  return btRun(() => btJob(bytes, {auto: auto})).then(() => { toast('Struk dikirim ke printer'); return true; }, e => { if (!e || e.btcode !== 'cancel') logErr(e, 'btprint'); toast(e && e.btcode === 'cancel' ? 'Pemilihan printer dibatalkan' : 'Gagal mencetak: ' + btWhy(e)); return false; }).then(r => { if (key) delete BT.pend[key]; return r; });
+  return btRun(() => btJob(bytes, {auto: auto})).then(() => { toast('Struk dikirim ke printer'); return true; }, e => { if (!e || e.btcode !== 'cancel') logErr(e, 'btprint'); if (e && e.btcode === 'cancel') toast('Pemilihan printer dibatalkan'); else fail('Gagal mencetak: ' + btWhy(e)); return false; }).then(r => { if (key) delete BT.pend[key]; return r; });
 }
 const btRawbt = rc => { btRelease(); return go('intent:base64,' + b64(escpos(rc)) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;'); };
 function btRelease() { clearTimeout(BT.tm); BT.manual = true; try { if (BT.dev && BT.dev.gatt && BT.dev.gatt.connected) BT.dev.gatt.disconnect(); } catch (e) {} BT.chr = null; if (BT.st !== 'printing') BT.st = 'idle'; } // satu printer BLE hanya melayani satu perangkat: lepaskan agar RawBT bisa menyambung
 async function printBT(rc, o) {
-  if (!rc) return toast('Tidak ada struk untuk dicetak');
+  if (!rc) return fail('Tidak ada struk untuk dicetak');
   const rt = btRoute();
   if (rt === 'rawbt') return btRawbt(rc);
   if (rt === 'ble' && !navigator.bluetooth) {
@@ -941,7 +999,7 @@ async function btConnUser(pick) {
   if (BT.st === 'printing') return toast('Tunggu cetakan selesai dulu');
   if (btRoute() === 'rawbt') return toast('Jalur utama RawBT: pasangkan printer di aplikasi RawBT');
   try { if (pick) await btDisconnect(); await btRun(() => btLink({pick: !!pick})); toast((pick ? 'Printer dipilih: ' : 'Printer tersambung: ') + (btName() || 'tanpa nama')); }
-  catch (e) { btSet(e && e.btcode === 'cancel' ? 'idle' : 'lost', btWhy(e)); if (!e || e.btcode !== 'cancel') logErr(e, 'btconn'); toast(btWhy(e)); }
+  catch (e) { btSet(e && e.btcode === 'cancel' ? 'idle' : 'lost', btWhy(e)); if (!e || e.btcode !== 'cancel') logErr(e, 'btconn'); if (e && e.btcode === 'cancel') toast(btWhy(e)); else fail(btWhy(e)); }
 }
 function btStat() { const s = BT.st; if (s === 'ready') return toast('Printer tersambung: ' + (btName() || 'tanpa nama')); if (s === 'connecting' || s === 'printing' || s === 'retry') return toast('Sedang diproses, mohon tunggu'); return btConnUser(!btSaved()); }
 async function btForget() {
@@ -952,7 +1010,7 @@ async function btForget() {
 function btUuidSave() {
   const el = /** @type {HTMLInputElement|null} */ (document.getElementById('btuuid')); if (!el) return;
   const raw = el.value.split(/[,\s]+/).filter(Boolean), ok = raw.map(btUuid);
-  if (ok.some(x => !x)) return toast('UUID tidak valid. Contoh: ff00 atau 0000ff00-0000-1000-8000-00805f9b34fb');
+  if (ok.some(x => !x)) return fail('UUID tidak valid. Contoh: ff00 atau 0000ff00-0000-1000-8000-00805f9b34fb');
   LS.set('btsvc', ok); toast(ok.length ? 'UUID tersimpan. Pilih printer lagi agar dikenali.' : 'UUID khusus dihapus');
 }
 function btOpt(k, on) { LS.set(k, !!on); btTick(); toast(on ? 'Diaktifkan' : 'Dimatikan'); }
@@ -991,12 +1049,12 @@ async function doLogin() {
     /* Penguncian ganti user: antrean pengguna lain yang belum terkirim tidak boleh tertinggal atau tercampur. */
     const other = S.queue.filter(q => q.uid !== r.uid);
     if (other.length) {
-      if (can('takeover', r.role) && confirm('Ada ' + other.length + ' transaksi pengguna lain yang belum terkirim di perangkat ini.\n\nKirim atas nama mereka sekarang (diambil alih Owner)? Pilih Batal untuk membatalkan login.')) other.forEach(q => { q.by = r.uid; });
+      if (can('takeover', r.role) && await busyPause(() => askConfirm('Kirim transaksi pengguna lain?', other.length + ' transaksi pengguna lain belum terkirim di perangkat ini. Kirim atas nama mereka?', 'Kirim', {cancel: 'Batalkan masuk'}))) other.forEach(q => { q.by = r.uid; });
       else { try { await api('logout', {}, {silent: true}); } catch (e) {} S.token = null; throw Object.assign(new Error(can('takeover', r.role) ? 'Login dibatalkan. Antrean pengguna lain belum terkirim.' : 'Masih ada ' + other.length + ' transaksi pengguna lain yang belum terkirim di perangkat ini. Masuk sebagai pengguna tersebut dulu agar antrean terkirim, atau hubungi Owner.'), {server: true}); }
       LS.set('queue', S.queue);
     }
     LS.set('token', r.token); LS.set('lastUser', u); LS.set('shared', !!($('#lsh') && $('#lsh').checked));
-    await loadData(); await shiftCheck(); S.tab = homeTab(); render(); flush();
+    await loadData(); await shiftCheck(); S.tab = homeTab(); render(); navArm(); flush();
     if (r.pin_lemah) setTimeout(() => toast(own() ? 'PIN Anda lemah. Ganti di Menu, Pengguna.' : 'PIN Anda lemah. Minta Owner menggantinya.'), 900);
   } catch (e) { S.token = null; $('#lerr').textContent = e.server ? e.message : 'Tidak dapat terhubung ke server. ' + e.message; } });
 }
@@ -1006,10 +1064,11 @@ const MENU_TABS = ['menu', 'master', 'users', 'settings', 'resep', 'laporan', 's
 function render() {
   if (!S.token || !S.data) return renderLogin();
   if (!tabAllowed(S.tab)) S.tab = homeTab();
+  navNote();
   const d = S.data; if (!S.ch || !d.channels.some(c => c.id === S.ch)) S.ch = d.channels[0] && d.channels[0].id;
   const o = own(), tabs = [['dash', 'Beranda'], ['kasir', 'Kasir'], ['riwayat', 'Riwayat'], ['stok', 'Stok'], ['produksi', 'Produksi'], ['menu', 'Menu']].filter(t => tabAllowed(t[0]) && !(o && t[0] === 'riwayat')),
     inMenu = MENU_TABS.concat(o ? ['riwayat'] : []).indexOf(S.tab) >= 0;
-  $('#app').innerHTML = '<header class="top"><img class="logo" src="icons/icon-192.png" alt="" width="38" height="38"><div class="brand"><b class="wordmark">' + esc(String(d.settings.nama_usaha || 'Duado Snack').toUpperCase()) + '</b>' + outletLabel() + '</div><button class="badge" id="badge" data-act="queue" aria-label="Status sinkronisasi"></button></header><div class="accent"></div><main id="main"></main><div id="cartbar"></div>' +
+  $('#app').innerHTML = '<header class="top"><img class="logo" src="icons/icon-192.png" alt="" width="38" height="38"><div class="brand"><b class="wordmark">' + esc(String(d.settings.nama_usaha || 'Duado Snack').toUpperCase()) + '</b>' + outletLabel() + '<button class="shs" id="shs" hidden></button></div><button class="badge" id="badge" data-act="queue" aria-label="Status sinkronisasi"></button></header><div class="accent"></div><main id="main"></main><div id="cartbar"></div>' +
     '<nav class="nav" aria-label="Menu utama">' + tabs.map(t => { const on = S.tab === t[0] || (t[0] === 'menu' && inMenu); return '<button data-act="tab" data-t="' + t[0] + '"' + (on ? ' aria-current="page"' : '') + ' class="' + (on ? 'on' : '') + '"><span class="ni">' + svg(t[0], 22) + '</span><span>' + t[1] + '</span></button>'; }).join('') + '</nav>';
   badge();
   (APP.views[S.tab] || vKasir)();
@@ -1027,7 +1086,15 @@ function badge() {
     else { cls = 'ok'; txt = 'Tersinkron'; }
     b.className = 'badge ' + cls; b.textContent = txt;
   }
-  qstatUpd(); if (S.qopen && !$('#sheet').hidden) queueSheet();
+  shiftUpd(); qstatUpd(); if (S.qopen && !$('#sheet').hidden) queueSheet();
+}
+/* P2 (UX-04): status kasir selalu terlihat di header (hanya untuk peran yang menjual dan bila buka kasir diwajibkan). Ketuk: belum dibuka = buka kasir; sudah buka = ke Tutup kasir. */
+function shiftUpd() {
+  const e = $('#shs'); if (!e) return;
+  const known = !!S.data && can('sell') && S.wajibBuka && typeof S.shiftOpen === 'boolean';
+  e.hidden = !known; if (!known) return;
+  const on = S.shiftOpen; e.className = 'shs ' + (on ? 'ok' : 'warn'); e.textContent = on ? 'Kasir buka' : 'Kasir belum dibuka'; e.setAttribute('data-act', on ? 'go_tutup' : 'kbuka');
+  e.setAttribute('aria-label', on ? 'Kasir buka. Ketuk untuk tutup kasir' : 'Kasir belum dibuka. Ketuk untuk membuka kasir');
 }
 function qstatUpd() {
   const el = $('#qstat'); if (!el) return;
@@ -1045,7 +1112,7 @@ function qinfo(q) {
   /* F3: total struk yang berbeda dari hitungan server TIDAK punya jalur persetujuan di server. Dulu tombol "Otorisasi Owner" hanya menaruh token di antrean lokal tanpa efek. Kini: perbarui data lalu coba lagi, atau hapus dengan alasan (dicatat di server). */
   if (/^Total struk/.test(e)) return {t: 'Total berbeda dari hitungan server', h: 'Harga atau pengaturan berubah sejak transaksi dibuat. Karena barang dan uang sudah berpindah, pilih "Terima harga server": transaksi dicatat dengan harga server dan ditandai agar Owner meninjaunya. Hapus hanya bila transaksi memang batal (perlu persetujuan Owner).', accept: true};
   if (/^Stok .* tidak cukup/.test(e)) return {t: 'Stok di server kurang', h: 'Stok server lebih kecil dari yang terjual (mis. ada opname/transfer saat offline). Pilih "Terima harga server": penjualan dicatat, stok menjadi minus, dan transaksi ditandai agar Owner meninjau dan melakukan opname.', accept: true};
-  if (/Buka sesi kasir/.test(e)) return {t: 'Kasir belum dibuka', h: 'Buka kasir di Menu, Tutup kasir (isi modal awal), lalu Coba lagi.'};
+  if (/Buka sesi kasir/.test(e)) return {t: 'Kasir belum dibuka', h: 'Ketuk Buka kasir di bagian atas layar dan isi modal awal, lalu Coba lagi.'};
   if (/Harga belum diatur|Channel tidak valid/.test(e)) return {t: 'Harga atau channel berubah di server', h: 'Perbarui data (Menu, Perbarui), lalu Coba lagi. Bila produk memang tidak dijual lagi, Hapus dengan alasan.'};
   if (/Varian (tidak ditemukan|nonaktif)|Jumlah tidak valid/.test(e)) return {t: 'Produk dihapus atau dinonaktifkan', h: 'Produk di transaksi ini sudah tidak aktif. Minta Owner mengaktifkannya lalu Coba lagi, atau Hapus dengan alasan.'};
   if (/Metode bayar/.test(e)) return {t: 'Metode bayar dinonaktifkan', h: 'Minta Owner mengaktifkan metode ini di Pengaturan lalu Coba lagi, atau Hapus dengan alasan.'};
@@ -1091,7 +1158,7 @@ function vKasir() {
   const d = S.data, wide = isWide(); S.cart = S.cart.filter(l => vById(l.v));
   const withAny = new Set(d.variants.map(v => v.product_id)), withV = new Set(d.variants.filter(v => !isAddon(v)).map(v => v.product_id)), cats = ['Semua'].concat(Array.from(new Set(d.products.filter(p => withV.has(p.id)).map(p => String(p.kategori == null ? '' : p.kategori)).filter(Boolean)))), noV = d.products.filter(p => !withAny.has(p.id)).length;
   if (S.cat !== 'Semua' && cats.indexOf(S.cat) < 0) S.cat = 'Semua';
-  const ctl = (shiftNeeded() ? '<div class="notice"><span>Kasir belum dibuka. Isi modal awal dulu agar penjualan bisa tercatat.</span><button class="chip" data-act="go_tutup">Buka kasir</button></div>' : '') + (own() && noV ? '<div class="notice"><span>' + noV + ' produk belum punya varian, jadi belum tampil di sini.</span><button class="chip" data-act="go_cek">Periksa data</button></div>' : '') + '' + btBox('bar') + '<button id="qstat" data-act="queue"></button>' +
+  const ctl = (shiftNeeded() ? '<div class="notice"><span>Kasir belum dibuka.</span><button class="chip" data-act="kbuka">Buka kasir</button></div>' : '') + (own() && noV ? '<div class="notice"><span>' + noV + ' produk belum punya varian, jadi belum tampil di sini.</span><button class="chip" data-act="go_cek">Periksa data</button></div>' : '') + '' + btBox('bar') + '<button id="qstat" data-act="queue"></button>' +
     '<div class="chips-wrap seg-wrap"><div class="chips seg" role="group" aria-label="Channel penjualan">' + d.channels.map(c => '<button class="' + (c.id === S.ch ? 'on' : '') + '" aria-pressed="' + (c.id === S.ch) + '" data-act="chan" data-c="' + esc(c.id) + '">' + esc(chShort(c.nama)) + '</button>').join('') + '</div></div>',
     flt = '<label class="search">' + svg('search', 18) + '<input id="q" class="inp" data-in="q" placeholder="Cari produk atau SKU" value="' + esc(S.q) + '" aria-label="Cari produk"></label>' +
     wrapChips(cats.map(c => '<button class="chip ' + (c === S.cat ? 'on' : '') + '" aria-pressed="' + (c === S.cat) + '" data-act="cat" data-c="' + esc(c) + '">' + esc(c) + '</button>').join('')) +
@@ -1146,18 +1213,18 @@ function fotoApply(pid, url) {
 }
 async function fotoLoad(file) {
   const pid = S.fotoFor; if (!file || !pid) return;
-  if (!/^image\//.test(file.type || '')) return toast('Pilih file gambar (JPG, PNG, atau WebP)');
-  if (file.size > 25 * 1024 * 1024) return toast('Foto terlalu besar (maks. 25 MB)');
-  if (navigator.onLine === false) return toast('Tidak ada koneksi. Foto hanya bisa diunggah saat online.');
+  if (!/^image\//.test(file.type || '')) return fail('Pilih file gambar (JPG, PNG, atau WebP)');
+  if (file.size > 25 * 1024 * 1024) return fail('Foto terlalu besar (maks. 25 MB)');
+  if (navigator.onLine === false) return fail('Tidak ada koneksi. Foto hanya bisa diunggah saat online.');
   return busy('Menyiapkan foto…', async () => {
-    let r; try { r = await fotoPrepare(file); } catch (e) { return toast(e.message); }
+    let r; try { r = await fotoPrepare(file); } catch (e) { return fail(e.message); }
     busyLabel('Mengunggah foto (' + Math.max(1, Math.round(r.bytes / 1024)) + ' KB)…');
-    try { const out = await api('produk.foto', {product_id: pid, data: r.b64}); fotoApply(pid, out.foto_url); toast('Foto tersimpan'); } catch (e) { toast(e.message); }
+    try { const out = await api('produk.foto', {product_id: pid, data: r.b64}); fotoApply(pid, out.foto_url); toast('Foto tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 async function fotoDel() {
-  const pid = S.fotoFor; if (!pid || !confirm('Hapus foto produk ini?')) return;
-  return busy('Menghapus foto…', async () => { try { await api('produk.foto', {product_id: pid, data: ''}); fotoApply(pid, ''); toast('Foto dihapus'); } catch (e) { toast(e.message); } });
+  const pid = S.fotoFor; if (!pid || !await askConfirm('Hapus foto produk?', 'Produk kembali memakai kotak inisial.', 'Hapus foto', {danger: true})) return;
+  return busy('Menghapus foto…', async () => { try { await api('produk.foto', {product_id: pid, data: ''}); fotoApply(pid, ''); toast('Foto dihapus'); } catch (e) { fail(e.message); } });
 }
 document.addEventListener('error', ev => { const t = ev.target; if (t && t.tagName === 'IMG' && t.hasAttribute('data-foto')) fotoErr(t); }, true); // error gambar tidak menggelembung: ditangkap di fase capture (CSP v1.9.7 melarang onerror inline; sebelumnya fotoErr juga tidak terjangkau dari atribut)
 let fotoBusy = false;
@@ -1279,11 +1346,11 @@ async function opinOk() {
 }
 async function pay() {
   if (S.paying || !S.cart.length) return;
-  if (S.cart.some(l => !vById(l.v))) { S.cart = S.cart.filter(l => vById(l.v)); saveCart(); toast('Ada produk yang sudah tidak tersedia; keranjang diperbarui'); if (S.cart.length) { if (!isWide()) cartSheet(); } else closeSheet(); cartbar(); return; }
+  if (S.cart.some(l => !vById(l.v))) { S.cart = S.cart.filter(l => vById(l.v)); saveCart(); fail('Ada produk yang sudah tidak tersedia; keranjang diperbarui'); if (S.cart.length) { if (!isWide()) cartSheet(); } else closeSheet(); cartbar(); return; }
   const c = calc(), tunai = S.metode === 'tunai', terima = tunai ? (S.terima === '' ? c.total : Number(S.terima) || 0) : c.total;
-  if (tunai && terima < c.total) return toast('Uang diterima kurang');
-  { const mn = Number(cfg('bayar_referensi_min')); if (!tunai && mn > 0 && c.total >= mn && !String(S.ref || '').trim()) return toast('Isi nomor referensi ' + S.metode.toUpperCase() + ' (transaksi Rp' + num(mn) + ' ke atas)'); }
-  if (payMethods().indexOf(S.metode) < 0) { S.metode = payMethods()[0] || 'tunai'; LS.set('metode', S.metode); const mc = $('#mchips'); if (mc) mc.innerHTML = methodChips(); cashBox(); upd(); return toast('Metode bayar tidak tersedia, dipilih ' + S.metode.toUpperCase()); }
+  if (tunai && terima < c.total) return fail('Uang diterima kurang', '[data-in="terima"]');
+  { const mn = Number(cfg('bayar_referensi_min')); if (!tunai && mn > 0 && c.total >= mn && !String(S.ref || '').trim()) return fail('Isi nomor referensi ' + S.metode.toUpperCase() + ' (transaksi Rp' + num(mn) + ' ke atas)', '[data-in="ref"]'); }
+  if (payMethods().indexOf(S.metode) < 0) { S.metode = payMethods()[0] || 'tunai'; LS.set('metode', S.metode); const mc = $('#mchips'); if (mc) mc.innerHTML = methodChips(); cashBox(); upd(); return fail('Metode bayar tidak tersedia, dipilih ' + S.metode.toUpperCase()); }
   S.paying = true; let rc;
   const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2), ts = Date.now(), override = {};
   if (!own()) { // kontrol kasir: diskon di atas batas butuh PIN Owner (diverifikasi server saat ini juga)
@@ -1302,21 +1369,24 @@ async function pay() {
       lines: S.cart.map(l => { const v = vById(l.v); return {n: (vName(v) + ' ' + vSub(v)).trim(), q: l.qty, h: priceOf(l.v, S.ch)}; })};
     S.queue.push({rid: rid, payload: payload, status: 'pending', state: 'waiting', ts: Date.now(), uid: S.data.user.uid, total: c.total, ch: rc.ch}); LS.set('queue', S.queue);
     S.cart.forEach(l => { const v = vById(l.v); if (v) v.stok = r6((Number(v.stok) || 0) - l.qty); }); LS.set('data', S.data);
-  } catch (e) { S.paying = false; logErr(e, 'bayar'); return toast('Transaksi gagal disimpan: ' + e.message); }
+  } catch (e) { S.paying = false; logErr(e, 'bayar'); return fail('Transaksi gagal disimpan: ' + e.message); }
   /* transaksi sudah aman di antrean: kosongkan keranjang lebih dulu agar tidak pernah tersisa, apa pun yang terjadi setelah ini */
   S.cart = []; S.diskon = ''; S.terima = ''; S.catatan = ''; S.ref = ''; LS.del('cart'); closeSheet();
   try { render(); } catch (e) { logErr(e, 'render'); }
-  try { showReceipt(rc); } catch (e) { logErr(e, 'struk'); toast('Transaksi tersimpan, tetapi struk gagal ditampilkan.'); }
+  try { showReceipt(rc); } catch (e) { logErr(e, 'struk'); fail('Transaksi tersimpan, tetapi struk gagal ditampilkan.'); }
   if (T(cfg('auto_cetak'))) { try { printBT(rc, {auto: true}).catch(e => logErr(e, 'cetak')); } catch (e) { logErr(e, 'cetak'); } }
   S.paying = false; flush();
 }
+/* P2 (UX-15): struk menampilkan hanya yang bisa dipakai perangkat ini. Utama: WhatsApp + satu tombol cetak (Bluetooth bila perangkat bisa, selain itu cetak lewat browser/AirPrint).
+   Bagikan (hanya bila ada Web Share), Salin, dan cetak browser dilipat ke "Lainnya"; "Transaksi baru" menempel di dasar sheet sehingga selalu terlihat. */
+const btUsable = () => isAndroid() || !!navigator.bluetooth || btHasSerial();
 function showReceipt(rc) {
-  S.rc = rc; const tunai = rc.metode === 'tunai';
+  S.rc = rc; const tunai = rc.metode === 'tunai', bt = btUsable(), canShare = !!navigator.share;
   sheet('<div class="grab"></div><div class="okmark">' + svg('check', 30) + '</div><h2 class="c">Pembayaran berhasil</h2><div class="rc-sum"><div><small>Total</small><b>' + rp(rc.total) + '</b></div><div><small>' + (tunai ? 'Kembalian' : 'Metode') + '</small><b>' + (tunai ? rp(Math.max(rc.kembali, 0)) : esc(rc.metode.toUpperCase())) + '</b></div></div>' +
-    '<label>No. WhatsApp pelanggan (opsional)<input class="inp" id="wa" inputmode="tel" placeholder="08xxxxxxxxxx"></label>' +
-    '<div class="row2"><button class="btn wa" data-act="wa">Kirim WhatsApp</button><button class="btn dark" data-act="rawbt">Cetak Bluetooth</button></div>' + btBox('rc') +
-    '<div class="row3"><button class="btn sec sm" data-act="share">Bagikan…</button><button class="btn sec sm" data-act="copyrc">Salin</button><button class="btn sec sm" data-act="print">Cetak</button></div>' +
-    '<details class="more"><summary>Lihat struk</summary><pre class="rc" id="rtxt"></pre></details><button class="btn pri big" data-act="close">Transaksi baru</button>');
+    '<label>No. WhatsApp (opsional)<input class="inp" id="wa" inputmode="tel" placeholder="08xxxxxxxxxx"></label>' +
+    '<div class="row2"><button class="btn wa" data-act="wa">Kirim WhatsApp</button>' + (bt ? '<button class="btn dark" data-act="rawbt">Cetak Bluetooth</button>' : '<button class="btn dark" data-act="print">Cetak lewat browser</button>') + '</div>' + btBox('rc') +
+    '<details class="more"><summary>Lainnya</summary><div class="row3">' + (canShare ? '<button class="btn sec sm" data-act="share">Bagikan…</button>' : '') + '<button class="btn sec sm" data-act="copyrc">Salin struk</button>' + (bt ? '<button class="btn sec sm" data-act="print">Cetak lewat browser</button>' : '') + '</div><pre class="rc" id="rtxt"></pre></details>' +
+    '<div class="sticky-act"><button class="btn pri big" data-act="close">Transaksi baru</button></div>');
   refreshRc();
 }
 function refreshRc() { // pratinjau + cetak browser: logo (bila aktif) di atas teks struk
@@ -1353,7 +1423,7 @@ async function vRiwayat() {
   S.rmore = async () => { // halaman berikutnya dari server; hindari ganda lewat id (transaksi baru menggeser urutan)
     const e = S.rcur; if (!e || !e.srv || e.loading || e.rows.length >= e.total) return; e.loading = true;
     try { const r = await api('sales.list', {tanggal: day, limit: PGN.hist, offset: e.rows.length}, {silent: true}); if (r && r.rows) { const seen = new Set(e.rows.map(x => x.id)); r.rows.forEach(x => { if (!seen.has(x.id)) e.rows.push(x); }); e.total = r.total; } }
-    catch (er) { toast('Gagal memuat transaksi berikutnya: ' + er.message); } finally { e.loading = false; if (S.rcur === e) paintList(e); }
+    catch (er) { fail('Gagal memuat transaksi berikutnya: ' + er.message); } finally { e.loading = false; if (S.rcur === e) paintList(e); }
   };
   try {
     if (ent) paint(ent); // tampil seketika dari hasil terakhir; diperbarui hanya bila ada data baru
@@ -1402,7 +1472,7 @@ async function adjSave(t, id) {
   try {
     const r = await api('stock.adjust', {tipe: t, id: id, stok_baru: dnum($('#a_s').value), hpp: $('#a_h').value.trim() === '' ? '' : dnum($('#a_h').value), alasan: $('#a_r').value});
     const it = t === 'bahan' ? S.data.materials.find(m => m.id === id) : vById(id); it.stok = r.stok; it.hpp_rata2 = r.hpp_rata2; LS.set('data', S.data); closeSheet(); render(); toast('Stok disimpan');
-  } catch (e) { toast(e.message); }
+  } catch (e) { fail(e.message); }
   });
 }
 function pbSheet() {
@@ -1423,24 +1493,24 @@ async function pbHist() {
   } catch (e) { $('#pbh').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 async function pbCancel(id) {
-  const why = prompt('Alasan membatalkan pembelian ini (min. 3 huruf):'); if (why === null) return; if (why.trim().length < 3) return toast('Alasan wajib diisi');
-  return busy('Membatalkan…', async () => { try { await api('purchase.cancel', {id: id, alasan: why.trim()}); await loadData(); toast('Pembelian dibatalkan, stok bahan dikembalikan'); pbHist(); } catch (e) { toast(e.message); } });
+  const why = await askReason('Batalkan pembelian ini?', 'Stok bahan dikembalikan. Tulis alasannya (min. 3 huruf).', 'Batalkan pembelian'); if (why === null) return pbHist(); // batal: kembali ke daftar pembelian
+  return busy('Membatalkan…', async () => { try { await api('purchase.cancel', {id: id, alasan: why.trim()}); await loadData(); toast('Pembelian dibatalkan, stok bahan dikembalikan'); pbHist(); } catch (e) { fail(e.message); } });
 }
 async function pbSave() {
   return busy('Menyimpan pembelian…', async () => {
-  const pb = S.pb; if (!pb.items.length) return toast('Daftar masih kosong');
+  const pb = S.pb; if (!pb.items.length) return fail('Daftar masih kosong');
   try {
     const r = await api('purchase.create', {supplier_id: pb.sup, ongkir: Number(pb.ongkir) || 0, items: pb.items.map(i => ({material_id: i.id, qty: i.qty, harga_satuan: i.harga}))});
     r.materials.forEach(u => { const m = S.data.materials.find(x => x.id === u.id); if (m) { m.stok = u.stok; if (u.hpp_rata2 !== undefined) m.hpp_rata2 = u.hpp_rata2; } });   // server hanya mengirim stok; jangan menghapus HPP yang ada
     LS.set('data', S.data); S.pb = {items: [], ongkir: '', sup: ''}; closeSheet(); render(); toast('Pembelian tersimpan, HPP diperbarui');
-  } catch (e) { toast(e.message); }
+  } catch (e) { fail(e.message); }
   });
 }
 
 /* ---------- Menu, data master, pengguna, pengaturan ---------- */
 const standalone = () => !!((window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true);
-function confirmLogout() {
-  const p = S.queue.length; if (!confirm(p ? 'Masih ada ' + p + ' transaksi yang belum terkirim ke server. Transaksi itu tetap tersimpan di perangkat dan dikirim saat Anda masuk lagi. Tetap keluar?' : 'Keluar dari akun ini?')) return;
+async function confirmLogout() {
+  const p = S.queue.length; if (!await askConfirm('Keluar dari akun ini?', p ? p + ' transaksi belum terkirim. Tetap tersimpan di perangkat dan dikirim saat Anda masuk lagi.' : 'Anda perlu masuk lagi untuk memakai aplikasi.', 'Keluar', {danger: p > 0})) return;
   S.dirty = false; logout();
 }
 function vMenu() {
@@ -1515,7 +1585,7 @@ function vMaster(noLoad) {
     rows.map(r => '<button class="li" style="width:100%;border:0;font:inherit;text-align:left" data-act="medit" data-id="' + esc(r.id) + '"><span' + (r.dibatalkan || r.pembalik ? ' style="text-decoration:' + (r.dibatalkan ? 'line-through' : 'none') + ';opacity:.7"' : '') + '>' + esc(cfg.t(r)) + (r.dibatalkan ? ' (dibatalkan)' : r.pembalik ? ' (pembatalan)' : '') + '</span><span class="muted">' + (S.mt === 'expenses' ? 'Rincian' : 'Ubah') + '</span></button>').join('') + (S.mt === 'expenses' && !S.expLoaded ? skel(3) : '');
   if (S.mt === 'expenses' && !noLoad) loadExp();
 }
-async function loadExp() { await vload('master.list', {table: 'expenses'}, r => { S.exp = r; S.expLoaded = true; if (S.tab === 'master' && S.mt === 'expenses') vMaster(true); }, {fail: e => toast(e.message)}); }
+async function loadExp() { await vload('master.list', {table: 'expenses'}, r => { S.exp = r; S.expLoaded = true; if (S.tab === 'master' && S.mt === 'expenses') vMaster(true); }, {fail: e => fail(e.message)}); }
 function meditSheet(id) {
   const cfg = MT[S.mt], r = id ? (S.mt === 'expenses' ? S.exp : S.data[cfg.k]).find(x => x.id === id) : {tanggal: today()};
   S.fotoFor = S.mt === 'products' ? id : null;
@@ -1530,7 +1600,7 @@ async function mSave(id) {
   return busy('Menyimpan data…', async () => {
   const data = readForm(); if (id) data.id = id;
   ['harga_jual', 'fee_persen', 'fee_tetap', 'stok_minimum', 'nominal', 'faktor_kecil'].forEach(k => { if (k in data) data[k] = dnum(data[k]) || 0; });
-  try { const rec = await api('master.save', {table: S.mt, data: data}); S.expLoaded = false; if (!patchMaster(S.mt, rec)) await loadData(); closeSheet(); render(); toast('Tersimpan'); } catch (e) { toast(e.message); }
+  try { const rec = await api('master.save', {table: S.mt, data: data}); S.expLoaded = false; if (!patchMaster(S.mt, rec)) await loadData(); closeSheet(); render(); toast('Tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 /* Setelah simpan, server mengembalikan rekaman terbaru: perangkat cukup memperbarui satu baris, tanpa mengunduh ulang seluruh data (dulu: dua permintaan berurutan). */
@@ -1549,9 +1619,9 @@ function patchRecipe(r) {
   S.data.recipe_items = (S.data.recipe_items || []).filter(x => x.recipe_id !== rec.id).concat(r.items); LS.set('data', S.data); return true;
 }
 async function mDel(id) {
+  if (!await askConfirm('Hapus data ini?', 'Data yang dihapus tidak bisa dikembalikan dari aplikasi.', 'Hapus', {danger: true})) return;
   return busy('Menghapus…', async () => {
-  if (!confirm('Hapus data ini?')) return;
-  try { await api('master.remove', {table: S.mt, id: id}); S.expLoaded = false; await loadData(); closeSheet(); render(); toast('Dihapus'); } catch (e) { toast(e.message); }
+  try { await api('master.remove', {table: S.mt, id: id}); S.expLoaded = false; await loadData(); closeSheet(); render(); toast('Dihapus'); } catch (e) { fail(e.message); }
   });
 }
 async function vUsers() {
@@ -1581,9 +1651,9 @@ function ueditSheet(id) {
 async function uSave(id) {
   return busy('Menyimpan pengguna…', async () => {
   const d = readForm(); if (id) { d.id = id; const cur = (S.users.find(x => x.id === id) || {}).role; if (!d.role || d.role === cur) delete d.role; }   // P0-1: kirim peran hanya bila benar-benar diubah
-  if (!id && !d.role) { toast('Pilih peran.'); return; }
-  { const role = d.role || (S.users.find(x => x.id === id) || {}).role, cp = d.pin ? credProblem(String(d.pin), role) : null; if (cp) { toast(cp); return; } }   // server tetap memeriksa ulang
-  try { await api('user.save', d); closeSheet(); vUsers(); toast('Tersimpan'); } catch (e) { toast(e.message); }
+  if (!id && !d.role) { fail('Pilih peran.', '[data-f="role"]'); return; }
+  { const role = d.role || (S.users.find(x => x.id === id) || {}).role, cp = d.pin ? credProblem(String(d.pin), role) : null; if (cp) { fail(cp, '[data-f="pin"]'); return; } }   // server tetap memeriksa ulang
+  try { await api('user.save', d); closeSheet(); vUsers(); toast('Tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 const selF = (k, l, pairs, cur) => '<label>' + l + '<select class="inp" data-f="' + k + '">' + pairs.map(p => '<option value="' + p[0] + '"' + (String(cur) === p[0] ? ' selected' : '') + '>' + p[1] + '</option>').join('') + '</select></label>';
@@ -1600,11 +1670,15 @@ function addonSheet() {
     '<label>Nama<input class="inp" id="ad_n" value="Kantong Kresek"></label><div class="row2"><div style="flex:1"><label>Harga jual (Rp)<input class="inp" id="ad_h" inputmode="decimal" value="500"></label></div><div style="flex:1"><label>Biaya/HPP per buah (Rp)<input class="inp" id="ad_c" inputmode="decimal" value="0"></label></div></div>' +
     '<label>Stok awal (jumlah)<input class="inp" id="ad_s" inputmode="decimal" value="100"></label><button class="btn pri" data-act="addonsave">Simpan</button><button class="btn sec" data-act="close">Batal</button>');
 }
+/* P2 (UX-11): 11 kartu pengaturan dibagi 3 halaman (maks. 4 kartu per halaman). Semua kolom tetap ada di SATU form (#sf): kartu di halaman lain hanya disembunyikan, jadi Simpan, penanda "belum disimpan", dan Kembali tetap bekerja untuk seluruh pengaturan. */
+const SET_PAGES = ['Struk & printer', 'Penjualan', 'Data & biaya'];
+const SET_PAGE_OF = {'Usaha & Struk': 0, 'Logo struk': 0, 'Header & footer struk': 0, 'Printer': 0, 'Pajak (PPN)': 1, 'Stok': 1, 'Kantong & Tambahan': 1, 'Kontrol kasir': 1, 'Kontrol data': 2, 'Kunci periode (Owner)': 2, 'HPP & Overhead': 2};
+function setPageNav(pg) { return '<nav class="spages" aria-label="Bagian pengaturan">' + SET_PAGES.map((n, i) => '<button type="button" class="chip' + (i === pg ? ' on' : '') + '" data-act="spage" data-p="' + i + '"' + (i === pg ? ' aria-current="true"' : '') + '>' + n + '</button>').join('') + '</nav>'; }
 function vSettings() {
-  const s = S.data.settings, g = (k, d) => (s[k] == null || s[k] === '' ? d : s[k]), card = (t, h) => '<section class="set-card"><h3>' + t + '</h3>' + h + '</section>';
+  const s = S.data.settings, g = (k, d) => (s[k] == null || s[k] === '' ? d : s[k]), pg = S.spage || 0, card = (t, h) => '<section class="set-card" data-sp="' + SET_PAGE_OF[t] + '"' + (SET_PAGE_OF[t] === pg ? '' : ' hidden') + '><h3>' + t + '</h3>' + h + '</section>';
   const sw = (k, l, sub, def) => '<label class="sw"><input type="checkbox" data-f="' + k + '"' + (T(s[k] == null || s[k] === '' ? def : s[k]) ? ' checked' : '') + '><span class="sw-t" aria-hidden="true"></span><span class="sw-l"><b>' + l + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</span></label>';
   const m = $('#main'); m.className = 'col';
-  m.innerHTML = '<button class="chip" data-act="tab" data-t="menu" style="align-self:flex-start">← Menu</button><div id="sf" style="margin-top:8px">' +
+  m.innerHTML = '<button class="chip" data-act="tab" data-t="menu" style="align-self:flex-start">← Menu</button><div id="sf" style="margin-top:8px">' + setPageNav(pg) +
     card('Usaha & Struk', field(['nama_usaha', 'Nama usaha'], s.nama_usaha) + '<p class="muted" style="margin:-4px 0 8px">Dicetak sebagai judul struk hanya bila logo tidak dipakai.</p>' + selF('lebar_struk', 'Lebar kertas struk', [['32', '58 mm (area cetak 48 mm)'], ['48', '80 mm (area cetak 72 mm)']], g('lebar_struk', '32'))) +
     card('Logo struk', logoCard() + sw('logo_aktif', 'Cetak logo di struk', 'Untuk printer thermal. Nama usaha tidak dicetak lagi bila logo aktif. Struk WhatsApp tetap berupa teks.') +
       (logoGet() ? '<button class="btn sec sm" data-act="logotest">Uji cetak logo</button>' : '') + '<p class="muted">Ukuran kertas diganti (58 atau 80 mm)? Pilih ulang logo agar ukurannya pas.</p>') +
@@ -1635,7 +1709,7 @@ async function sSave() {
   const v = {}; document.querySelectorAll('#sf [data-f]').forEach(e => v[e.dataset.f] = e.type === 'checkbox' ? e.checked : e.value);
   ['opname_ambang_nilai', 'transfer_ambang_nilai', 'bayar_referensi_min'].forEach(k => { if (k in v) v[k] = String(v[k]).replace(/\D/g, ''); });   // angka bulat atau kosong (kosong = nonaktif)
   ['ppn_persen', 'overhead_per_unit', 'overhead_per_batch', 'target_margin', 'stok_menipis', 'diskon_maks_persen', 'kelipatan_harga'].forEach(k => { if (k in v) { const n = dnum(v[k]); v[k] = isNaN(n) ? 0 : n; } });
-  try { await api('setting.setMany', {values: v}); S.dirty = false; await loadData(); render(); toast('Pengaturan tersimpan'); } catch (e) { toast(e.message); }
+  try { await api('setting.setMany', {values: v}); S.dirty = false; await loadData(); render(); toast('Pengaturan tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 
@@ -1648,14 +1722,14 @@ async function vTutup() {
   if (unsent) { flush(); $('#tbody').innerHTML = '<div class="notice"><span>Masih ada ' + unsent + ' transaksi yang belum terkirim ke server. Kirim dulu agar rekap lengkap.</span><button class="chip" data-act="tab" data-t="tutup">Periksa lagi</button></div><button class="btn pri" data-act="qnow">Kirim sekarang</button>'; return; }
   await vload('shift.summary', {}, r => {
     if (S.tab !== 'tutup' || !$('#tbody')) return; const typed = ($('#tf') && $('#tf').value) || ($('#tn') && $('#tn').value) || ($('#tm') && $('#tm').value) || ($('#mn') && $('#mn').value); S.shift = r; if (typed) return; /* jangan menimpa isian yang sedang diketik */ const kv = (a, b) => '<div class="kv"><span>' + a + '</span><span>' + b + '</span></div>';
-    S.shiftOpen = !!r.sesi; S.wajibBuka = r.wajib_buka !== false;
+    S.shiftOpen = !!r.sesi; S.wajibBuka = r.wajib_buka !== false; shiftUpd();
     if (!r.sesi) { // F4: modal awal ditetapkan saat BUKA kasir (sebelum ada penjualan), bukan diketik saat tutup
       $('#tbody').innerHTML = '<div class="li" style="display:block"><b>Kasir belum dibuka</b><p class="muted">Hitung uang modal di laci, isi jumlahnya, lalu buka kasir. Angka ini terkunci dan dipakai menghitung selisih saat tutup.</p></div>' +
         '<label>Modal awal laci (Rp)<input class="inp" id="tm" inputmode="numeric" placeholder="0"></label><button class="btn pri big" data-act="kopen">Buka kasir</button><div id="tlist"></div>'; tutupList(); return;
     }
     const mv = (r.gerakan || []).map(g => '<div class="kv"><span>' + (g.jenis === 'in' ? 'Kas masuk' : 'Kas keluar') + ' · ' + esc(g.alasan) + '</span><span>' + rp(g.nominal) + '</span></div>').join('');
     $('#tbody').innerHTML = '<div class="li" style="display:block">' + kv('Sejak', esc(String(r.dari).slice(0, 16))) + kv('Jumlah transaksi', num(r.jumlah_trx)) + kv('Modal awal', rp(r.modal_awal)) + mv + '</div>' +
-      '<div class="li" style="display:block"><b>Kas masuk/keluar</b><p class="muted">Mis. beli es batu memakai uang laci. Catat SAAT terjadi, dengan alasan. Kas keluar otomatis tercatat sebagai biaya sesuai kategorinya.</p><div class="row2"><select class="inp" id="mj"><option value="out">Keluar</option><option value="in">Masuk</option></select><input class="inp" id="mn" inputmode="numeric" placeholder="Nominal"></div><select class="inp" id="mk"><option value="">Kategori biaya (wajib untuk kas keluar)</option>' + KAS_CATS.map(c => '<option>' + esc(c) + '</option>').join('') + '</select><input class="inp" id="ma" placeholder="Alasan (min. 3 huruf)"><button class="btn sec" data-act="kmove">Catat</button></div>' +
+      '<div class="li" style="display:block"><b>Kas masuk/keluar</b><p class="muted">Mis. beli es batu memakai uang laci. Catat SAAT terjadi, dengan alasan. Kas keluar otomatis tercatat sebagai biaya sesuai kategorinya.</p><div class="row2"><label><span id="mj_l">Jenis</span><select class="inp" id="mj" aria-labelledby="mj_l"><option value="out">Keluar</option><option value="in">Masuk</option></select></label><label>Nominal (Rp)<input class="inp" id="mn" inputmode="numeric" placeholder="0"></label></div><label><span id="mk_l">Kategori biaya (wajib untuk kas keluar)</span><select class="inp" id="mk" aria-labelledby="mk_l"><option value="">Pilih kategori</option>' + KAS_CATS.map(c => '<option>' + esc(c) + '</option>').join('') + '</select></label><label>Alasan<input class="inp" id="ma" placeholder="Min. 3 huruf"></label><button class="btn sec" data-act="kmove">Catat kas</button></div>' +
       '<label>Uang tunai di laci sekarang (Rp)<input class="inp" id="tf" inputmode="numeric" placeholder="Hitung dulu, lalu isi"></label><label>Catatan (opsional)<input class="inp" id="tn"></label><button class="btn pri big" data-act="tclose">Tutup kasir</button><div id="tlist"></div>';
     tutupList();
   }, {fail: e => { if ($('#tbody')) $('#tbody').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }});
@@ -1664,46 +1738,51 @@ async function tutupList() { await vload('shift.list', {}, L => { let el = $('#t
     (x._ro ? '<button class="chip" data-act="shreopen" data-id="' + esc(x.id) + '">Salah input? Buka kembali</button> ' : '') + (x.disetujui ? '<div><span class="tag">Ditinjau</span> ' + esc(x.disetujui_oleh || '') + (x.catatan_tinjau ? ' · ' + esc(x.catatan_tinjau) : '') + '</div>' : (Number(x.selisih_tunai) !== 0 && can('approve') && x.kasir_id !== S.data.user.uid ? '<button class="chip" data-act="shapp" data-id="' + esc(x.id) + '" data-d="' + esc(x.selisih_tunai) + '">Tandai ditinjau</button>' : '')) + '</div></div>').join('') : '<p class="muted">Belum ada.</p>'); el.innerHTML = h; }); }
 async function tutupSimpan() {
   const v = dnum(($('#tf') || {}).value);
-  if (isNaN(v) || v < 0 || ($('#tf') || {}).value === '') return toast('Isi jumlah uang tunai di laci');
-  if (mineAll().length) return toast('Masih ada transaksi belum terkirim');
-  return busy('Menutup kasir…', async () => { try { S.shiftOpen = false; const r = await api('shift.close', {uang_fisik: v, catatan: ($('#tn') || {}).value || ''}); const d = r.selisih_tunai, kv = (a, b) => '<div class="kv"><span>' + a + '</span><span>' + b + '</span></div>';
+  if (isNaN(v) || v < 0 || ($('#tf') || {}).value === '') return fail('Isi jumlah uang tunai di laci', '#tf');
+  if (mineAll().length) return fail('Masih ada transaksi belum terkirim');
+  return busy('Menutup kasir…', async () => { try { const r = await api('shift.close', {uang_fisik: v, catatan: ($('#tn') || {}).value || ''}); S.shiftOpen = false; shiftUpd(); const d = r.selisih_tunai, kv = (a, b) => '<div class="kv"><span>' + a + '</span><span>' + b + '</span></div>';
     $('#tbody').innerHTML = '<div class="okmark">' + svg('check', 30) + '</div><h2 class="c">Kasir ditutup</h2><div class="li" style="display:block">' + kv('Jumlah transaksi', num(r.jumlah_trx)) + kv('Tunai (setelah retur)', rp(r.tunai)) + kv('Transfer', rp(r.transfer)) + kv('QRIS', rp(r.qris)) + (r.lain ? kv('Lainnya', rp(r.lain)) : '') + (r.retur ? kv('Retur di shift ini', rp(r.retur)) : '') + kv('<b>Total</b>', '<b>' + rp(r.total) + '</b>') + '</div>' +
       '<div class="li" style="display:block">' + kv('Modal awal', rp(r.modal_awal)) + kv('Kas keluar', rp(r.kas_keluar)) + kv('Tunai seharusnya di laci', rp(r.tunai_diharapkan)) + kv('Uang di laci', rp(r.uang_fisik)) + '</div>' +
-      '<div class="rc-sum"><div><small>Selisih tunai</small><b style="color:' + (d === 0 ? 'var(--ok)' : 'var(--err)') + '">' + (d > 0 ? '+' : '') + rp(d) + '</b></div></div><p class="muted c">' + (d === 0 ? 'Uang laci sesuai.' : d > 0 ? 'Uang laci lebih dari catatan.' : 'Uang laci kurang dari catatan.') + '</p><div id="tlist"></div>'; tutupList(); } catch (e) { toast(e.message); } });
+      '<div class="rc-sum"><div><small>Selisih tunai</small><b style="color:' + (d === 0 ? 'var(--ok)' : 'var(--err)') + '">' + (d > 0 ? '+' : '') + rp(d) + '</b></div></div><p class="muted c">' + (d === 0 ? 'Uang laci sesuai.' : d > 0 ? 'Uang laci lebih dari catatan.' : 'Uang laci kurang dari catatan.') + '</p><div id="tlist"></div>'; tutupList(); } catch (e) { fail(e.message); } });
 }
 
 
+/* P2 (UX-04): kasir dibuka langsung dari banner Kasir atau chip di header lewat sheet kecil (ketuk, isi modal, ketuk), tanpa pindah layar: keranjang dan posisi tetap. Halaman Tutup kasir tetap bisa membukanya. */
+function kasOpenSheet() {
+  sheet('<div class="grab"></div><h2>Buka kasir</h2><p class="muted">Hitung uang modal di laci dan isi jumlahnya. Angka ini terkunci untuk menghitung selisih saat tutup.</p><label>Modal awal laci (Rp)<input class="inp" id="bm" inputmode="numeric" placeholder="0"></label><button class="btn pri big" data-act="kopen">Buka kasir</button><button class="btn sec" data-act="close">Batal</button>');
+  setTimeout(() => { const i = $('#bm'); if (i) i.focus(); }, 60);
+}
 async function kasOpen() {
-  const m = dnum(($('#tm') || {}).value || '0'); if (isNaN(m) || m < 0) return toast('Modal awal harus berupa angka 0 atau lebih');
-  return busy('Membuka kasir…', async () => { try { await api('shift.open', {modal_awal: m}); S.shiftOpen = true; toast('Kasir dibuka'); vTutup(); } catch (e) { toast(e.message); } });
+  const inSheet = !!$('#bm'), fld = inSheet ? '#bm' : '#tm';
+  const m = dnum(($(fld) || {}).value || '0'); if (isNaN(m) || m < 0) return fail('Modal awal harus berupa angka 0 atau lebih', fld);
+  return busy('Membuka kasir…', async () => { try { await api('shift.open', {modal_awal: m}); S.shiftOpen = true; if (inSheet) closeSheet(); toast('Kasir dibuka'); if (S.tab === 'tutup') vTutup(); else render(); } catch (e) { fail(e.message); } });
 }
 async function kasMove() {
-  const n = dnum(($('#mn') || {}).value), a = (($('#ma') || {}).value || '').trim(); if (!(n > 0)) return toast('Isi nominal lebih dari 0'); if (a.length < 3) return toast('Alasan wajib diisi');
-  const j = ($('#mj') || {}).value, k = ($('#mk') || {}).value || ''; if (j === 'out' && !k) return toast('Pilih kategori biaya untuk kas keluar');
+  const n = dnum(($('#mn') || {}).value), a = (($('#ma') || {}).value || '').trim(); if (!(n > 0)) return fail('Isi nominal lebih dari 0', '#mn'); if (a.length < 3) return fail('Alasan wajib diisi (min. 3 huruf)', '#ma');
+  const j = ($('#mj') || {}).value, k = ($('#mk') || {}).value || ''; if (j === 'out' && !k) return fail('Pilih kategori biaya untuk kas keluar', '#mk');
   S.kmRid = S.kmRid || ((window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2)); // kirim ulang setelah timeout memakai id yang sama (tidak menggandakan)
-  return busy('Mencatat…', async () => { try { await api('cash.move', {jenis: j, nominal: n, alasan: a, kategori: j === 'out' ? k : undefined, request_id: S.kmRid}); S.kmRid = null; toast('Tercatat'); vTutup(); } catch (e) { if (e.server && !e.retry) S.kmRid = null; toast(e.message); } });
+  return busy('Mencatat…', async () => { try { await api('cash.move', {jenis: j, nominal: n, alasan: a, kategori: j === 'out' ? k : undefined, request_id: S.kmRid}); S.kmRid = null; toast('Tercatat'); vTutup(); } catch (e) { if (e.server && !e.retry) S.kmRid = null; fail(e.message); } });
 }
 async function shiftCheck() { if (!S.token || !can('sell')) return; try { const r = await api('shift.summary', {}, {silent: true}); S.shiftOpen = !!r.sesi; S.wajibBuka = r.wajib_buka !== false; } catch (e) { /* abaikan: hanya untuk spanduk */ } }
 const shiftNeeded = () => can('sell') && S.wajibBuka && S.shiftOpen === false;
 
 /* F-17: supervisor/owner menandai selisih kas sudah ditinjau (catatan wajib bila ada selisih). */
 async function shiftApprove(id, diff) {
-  let note = ''; if (Number(diff) !== 0) { note = prompt('Catatan hasil tinjauan selisih Rp' + num(diff) + ' (min. 3 huruf):'); if (note === null) return; if (note.trim().length < 3) return toast('Catatan wajib diisi'); }
-  return busy('Menyimpan…', async () => { try { await api('shift.approve', {id: id, catatan: note.trim()}); toast('Ditandai ditinjau'); tutupList(); } catch (e) { toast(e.message); } });
+  let note = ''; if (Number(diff) !== 0) { note = await askReason('Tinjau selisih Rp' + num(diff), 'Tulis hasil peninjauan (min. 3 huruf).', 'Tandai ditinjau', {label: 'Catatan', danger: false}); if (note === null) return; }
+  return busy('Menyimpan…', async () => { try { await api('shift.approve', {id: id, catatan: note.trim()}); toast('Ditandai ditinjau'); tutupList(); } catch (e) { fail(e.message); } });
 }
 
 /* 0031: buka kembali penutupan yang salah input (owner/admin; supervisor untuk kasir lain). Sesi kembali terbuka, lalu kasir menutup ulang dengan angka yang benar. */
 async function shiftReopen(id) {
-  const why = prompt('Buka kembali penutupan ini agar bisa diinput ulang?\nTulis alasannya (min. 3 huruf), mis. "salah ketik uang laci":'); if (why === null) return;
-  if (why.trim().length < 3) return toast('Alasan wajib diisi');
-  return busy('Membuka kembali…', async () => { try { await api('shift.reopen', {id: id, alasan: why.trim()}); S.shiftOpen = true; toast('Penutupan dibuka kembali. Silakan input ulang uang laci.'); vTutup(); } catch (e) { toast(e.message); } });
+  const why = await askReason('Buka kembali penutupan?', 'Kasir bisa mengisi ulang uang laci. Tulis alasannya, mis. salah ketik uang laci.', 'Buka kembali', {danger: false}); if (why === null) return;
+  return busy('Membuka kembali…', async () => { try { await api('shift.reopen', {id: id, alasan: why.trim()}); S.shiftOpen = true; shiftUpd(); toast('Dibuka kembali. Isi ulang uang laci.'); vTutup(); } catch (e) { fail(e.message); } });
 }
 /* ---------- Retur (transaksi selesai tidak diubah; retur dicatat sebagai transaksi negatif) ---------- */
 S.retRid = {};
 async function returOpen(id) {
-  if (!navigator.onLine) return toast('Retur butuh koneksi internet');
-  let d; try { d = await api('sale.detail', {id: id}); } catch (e) { return toast(e.server ? e.message : 'Tidak bisa memuat transaksi (periksa koneksi)'); }
-  const L = d.items.filter(x => x.sisa > 0); if (!L.length) return toast('Semua item transaksi ini sudah diretur');
+  if (!navigator.onLine) return fail('Retur butuh koneksi internet');
+  let d; try { d = await api('sale.detail', {id: id}); } catch (e) { return fail(e.server ? e.message : 'Tidak bisa memuat transaksi (periksa koneksi)'); }
+  const L = d.items.filter(x => x.sisa > 0); if (!L.length) return fail('Semua item transaksi ini sudah diretur');
   S.ret = {id: id, nomor: d.sale.nomor, lines: L};
   /* P0 (F-02): tiap item WAJIB memilih nasib barangnya. Tidak ada pilihan bawaan, supaya barang rusak tidak diam-diam menjadi stok jual. */
   sheet('<div class="grab"></div><h2>Retur ' + esc(d.sale.nomor) + '</h2><p class="muted">Isi jumlah yang dikembalikan pelanggan dan pilih kondisi barangnya. Barang yang kembali ke stok menambah stok jual; barang rusak/dibuang tidak menambah stok dan nilainya dicatat sebagai kerugian persediaan. Transaksi asal tidak diubah; retur tercatat sebagai transaksi baru bernilai minus.' + (can('approve') ? '' : ' Retur oleh kasir perlu PIN Owner/Supervisor.') + '</p>' +
@@ -1727,23 +1806,24 @@ async function returGo() {
     delete S.retRid[key]; closeSheet();
     Object.keys(res.stok || {}).forEach(id => { const v = vById(id); if (v) v.stok = r6(res.stok[id] - pendingQty(id)); }); LS.set('data', S.data);
     toast(res.duplicate || res.cached ? 'Retur ini sudah tercatat sebelumnya' : 'Retur tercatat. Kembalikan ' + rp(res.refund) + ' ke pelanggan (' + (res.metode || '') + ')' + (res.buang ? '. ' + res.buang + ' item rusak/dibuang, tidak masuk stok' : '')); if (S.tab === 'riwayat') vRiwayat();
-  } catch (e) { if (e.auth) softLogout(); else toast(e.server ? e.message : 'Koneksi bermasalah. Ulangi retur yang sama; aman, tidak akan tercatat dua kali.'); }
+  } catch (e) { if (e.auth) softLogout(); else fail(e.server ? e.message : 'Koneksi bermasalah. Ulangi retur yang sama; aman, tidak akan tercatat dua kali.'); }
 }
 /* ---------- Aksi (event delegation) ---------- */
-function askReason(title, msg, okLabel) { // v1.9.9: pengganti prompt() bawaan browser; resolve(teks alasan) atau null bila dibatalkan
+function askReason(title, msg, okLabel, o) { // o: {label: judul kolom (bawaan 'Alasan'), danger: false = tombol utama biasa} // v1.9.9: pengganti dialog isian bawaan browser; resolve(teks alasan) atau null bila dibatalkan
   return new Promise(res => {
     S.opin = {res: res, kind: 'alasan'}; S.qopen = false; // qopen=false: badge() tidak menimpa sheet ini dengan daftar antrean
-    sheet('<div class="grab"></div><h2>' + esc(title) + '</h2><p class="muted">' + esc(msg) + '</p><label>Alasan<textarea class="inp ta" id="rsn" rows="3" maxlength="300"></textarea></label><div class="err" id="rerr" role="alert"></div><button class="btn dan" data-act="reason_ok">' + esc(okLabel || 'Lanjutkan') + '</button><button class="btn sec" data-act="close">Batal</button>');
+    sheet('<div class="grab"></div><h2>' + esc(title) + '</h2><p class="muted">' + esc(msg) + '</p><label>' + esc((o && o.label) || 'Alasan') + '<textarea class="inp ta" id="rsn" rows="3" maxlength="300"></textarea></label><div class="err" id="rerr" role="alert"></div><button class="btn ' + (o && o.danger === false ? 'pri' : 'dan') + '" data-act="reason_ok">' + esc(okLabel || 'Lanjutkan') + '</button><button class="btn sec" data-act="close">Batal</button>');
     setTimeout(() => { const t = $('#rsn'); if (t) t.focus(); }, 60);
   });
 }
 const ACT = {
-  login: doLogin, logout: confirmLogout, close: closeSheet, cart: cartSheet, pay: pay,
+  login: doLogin, logout: confirmLogout, close: closeSheet, cf_ok: () => cfDone(true), cf_no: () => cfDone(false), cart: cartSheet, pay: pay,
   hideout: el => { S.hideOut = !!el.checked; LS.set('hideOut', S.hideOut); grid(); }, showout: () => { S.hideOut = false; LS.set('hideOut', false); vKasir(); },
   rday: el => { const p = el.dataset.p; if (p === 'today') { S.day = today(); S.rcustom = false; } else if (p === 'yday') { S.day = addDays(today(), -1); S.rcustom = false; } else S.rcustom = true; vRiwayat(); },
   scat: el => { S.scat = el.dataset.c; vStok(); },
   install: async () => { const ev = S.installEv; if (!ev) return; try { ev.prompt(); await ev.userChoice; } catch (e) {} S.installEv = null; if (S.tab === 'menu') vMenu(); },
   tab: el => { S.tab = el.dataset.t; render(); },
+  errx: () => { failClear(); const d = /** @type {HTMLElement|null} */ (document.querySelector('#sheet:not([hidden]) .sheet')); if (d) d.focus({preventScroll: true}); }, // tombol Tutup pada kotak galat; fokus kembali ke dialog bila ada
   chan: el => { S.ch = el.dataset.c; LS.set('ch', S.ch); vKasir(); cartbar(); },
   cat: el => { S.cat = el.dataset.c; vKasir(); },
   add: el => { if (el.classList.contains('off')) { return toast(priceOf(el.dataset.v, S.ch) == null ? 'Harga belum diatur untuk channel ini' : 'Stok habis'); } addToCart(el.dataset.v); },
@@ -1753,23 +1833,24 @@ const ACT = {
   metode: el => { S.metode = el.dataset.m; LS.set('metode', S.metode); const c = $('#mchips'); if (c) c.innerHTML = methodChips(); cashBox(); upd(); },
   qk: el => { S.terima = el.dataset.n; cashBox(); upd(); },
   wa: () => waSend(S.rc, ($('#wa') || {}).value), rawbt: () => printBT(S.rc), print: () => printBrowser(), share: () => shareRc(S.rc), copyrc: () => copyText(receiptText(S.rc)),
-  addonnew: () => { if (S.dirty) return toast('Simpan perubahan pengaturan dulu.'); addonSheet(); },
-  addonsave: () => { const n = $('#ad_n').value.trim(), h = dnum($('#ad_h').value), c = dnum($('#ad_c').value), st = dnum($('#ad_s').value); if (!n) return toast('Isi nama produk tambahan'); if (!(h >= 0)) return toast('Harga jual tidak valid');
-    return busy('Membuat produk tambahan…', async () => { try { await api('addon.create', {nama: n, harga: h, hpp: isNaN(c) ? 0 : c, stok: isNaN(st) ? 0 : st}); await loadData(); closeSheet(); render(); toast('Produk tambahan dibuat'); } catch (e) { toast(e.message); } }); },
-  fotopick: () => { const f = $('#foto_file'); if (f) f.click(); }, fotodel: fotoDel, logopick: () => { if (S.dirty) return toast('Simpan perubahan pengaturan dulu.'); const f = $('#logo_file'); if (f) f.click(); }, logosave: logoSave, logodel: logoDel,
-  rcpreview: () => { if (S.dirty) return toast('Simpan pengaturan dulu agar pratinjau sesuai.'); S.rc = testRc(); sheet('<div class="grab"></div><h2>Pratinjau struk</h2><p class="muted">Contoh transaksi uji, kertas ' + (rcWidth() === 48 ? '80' : '58') + ' mm.</p><pre class="rc" id="rtxt"></pre><div class="row2"><button class="btn dark" data-act="rawbt">Cetak Bluetooth</button><button class="btn sec" data-act="print">Cetak</button></div>' + btBox('rc') + '<button class="btn pri" data-act="close">Tutup</button>'); refreshRc(); },
-  logotest: () => { if (!logoOn()) return toast('Aktifkan "Cetak logo di struk" dan simpan pengaturan dulu'); printBT(testRc()); },
+  addonnew: () => { if (S.dirty) return fail('Simpan perubahan pengaturan dulu.'); addonSheet(); },
+  addonsave: () => { const n = $('#ad_n').value.trim(), h = dnum($('#ad_h').value), c = dnum($('#ad_c').value), st = dnum($('#ad_s').value); if (!n) return fail('Isi nama produk tambahan', '#ad_n'); if (!(h >= 0)) return fail('Harga jual tidak valid', '#ad_h');
+    return busy('Membuat produk tambahan…', async () => { try { await api('addon.create', {nama: n, harga: h, hpp: isNaN(c) ? 0 : c, stok: isNaN(st) ? 0 : st}); await loadData(); closeSheet(); render(); toast('Produk tambahan dibuat'); } catch (e) { fail(e.message); } }); },
+  fotopick: () => { const f = $('#foto_file'); if (f) f.click(); }, fotodel: fotoDel, logopick: () => { if (S.dirty) return fail('Simpan perubahan pengaturan dulu.'); const f = $('#logo_file'); if (f) f.click(); }, logosave: logoSave, logodel: logoDel,
+  rcpreview: () => { if (S.dirty) return fail('Simpan pengaturan dulu agar pratinjau sesuai.'); S.rc = testRc(); sheet('<div class="grab"></div><h2>Pratinjau struk</h2><p class="muted">Contoh transaksi uji, kertas ' + (rcWidth() === 48 ? '80' : '58') + ' mm.</p><pre class="rc" id="rtxt"></pre><div class="row2"><button class="btn dark" data-act="rawbt">Cetak Bluetooth</button><button class="btn sec" data-act="print">Cetak</button></div>' + btBox('rc') + '<button class="btn pri" data-act="close">Tutup</button>'); refreshRc(); },
+  logotest: () => { if (!logoOn()) return fail('Aktifkan "Cetak logo di struk" dan simpan pengaturan dulu'); printBT(testRc()); },
   go_diag: () => { S.tab = 'diag'; render(); },
+  spage: el => { S.spage = Number(el.dataset.p) || 0; /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('#sf .set-card')).forEach(c => { c.hidden = Number(c.dataset.sp) !== S.spage; }); const nv = document.querySelector('#sf .spages'); if (nv) nv.outerHTML = setPageNav(S.spage); const n2 = /** @type {HTMLElement|null} */ (document.querySelector('#sf .spages .on')); if (n2) n2.focus({preventScroll: true}); window.scrollTo(0, 0); },
   opin_ok: opinOk,
   reason_ok: () => { const o = S.opin, v = (($('#rsn') || {}).value || '').trim(); if (!o || o.kind !== 'alasan') return; if (v.length < 3) { $('#rerr').textContent = 'Alasan wajib diisi (minimal 3 huruf).'; return; } S.opin = null; closeSheet(); o.res(v); },
-  qauth: async el => { const q = S.queue[el.dataset.i]; if (!q) return; if (!/^Diskon/.test(q.error || '')) return toast('Hanya diskon yang bisa disetujui Owner. Perbarui data lalu Coba lagi, atau Hapus dengan alasan.'); const kind = 'diskon';   // F3: jalur 'selisih' dibuang (tidak berefek di server)
+  qauth: async el => { const q = S.queue[el.dataset.i]; if (!q) return; if (!/^Diskon/.test(q.error || '')) return fail('Hanya diskon yang bisa disetujui Owner. Perbarui data lalu Coba lagi, atau Hapus dengan alasan.'); const kind = 'diskon';   // F3: jalur 'selisih' dibuang (tidak berefek di server)
     const tok = await askOwner(q.error + ' Owner dapat menyetujui dengan PIN.', kind, q.rid, q.payload.diskon);
     if (!tok) return queueSheet(); q.payload.override = Object.assign({}, q.payload.override, {[kind]: tok}); q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; LS.set('queue', S.queue); flush(); queueSheet(); },
   go_tutup: () => { S.tab = 'tutup'; render(); }, tclose: () => tutupSimpan(),
   queue: queueSheet, qnow: () => { flush(); setTimeout(() => { if (S.qopen) queueSheet(); }, 700); },
   btmode: el => btSetMode(el.dataset.m), btstat: () => btStat(), btpick: () => btConnUser(true), btconn: () => btConnUser(false), btdisc: async () => { await btDisconnect(); toast('Printer diputus'); }, btforget: () => btForget(), btuuid: () => btUuidSave(),
   btbeat: el => btOpt('btbeat', el.checked), btwake: el => btOpt('btwake', el.checked), btraw: () => { if (S.rc) btRawbt(S.rc); },
-  skugen: el => { const f = {}; document.querySelectorAll('#sheet [data-f]').forEach(e => f[e.dataset.f] = e.value); if (!f.product_id) return toast('Pilih produk dulu'); const i = document.querySelector('#sheet [data-f=sku]'); if (i) i.value = genSkuLocal(f, el.dataset.id || ''); },
+  skugen: el => { const f = {}; document.querySelectorAll('#sheet [data-f]').forEach(e => f[e.dataset.f] = e.value); if (!f.product_id) return fail('Pilih produk dulu', '[data-f="product_id"]'); const i = document.querySelector('#sheet [data-f=sku]'); if (i) i.value = genSkuLocal(f, el.dataset.id || ''); },
   dtwa: () => waSend(testRc(), ''), dtbt: () => printBT(testRc()), dtshare: () => shareRc(testRc()),
   dping: async () => { const el = $('#dres'); el.textContent = 'Menguji…'; const t0 = performance.now(); try { S.srvMs = undefined; await api('ping', {}, {silent: true}); const a = Math.round(performance.now() - t0), ms1 = S.srvMs; // lalu muat data penuh: ukuran dan waktu server untuk bootstrap (hasil dibuang)
       el.textContent = 'Ping: ' + a + ' ms' + (ms1 !== undefined ? ' (server ' + ms1 + ' ms)' : '') + '. Mengukur muat data…'; const t1 = performance.now(); S.srvMs = undefined; const b = await api('bootstrap', {}, {silent: true}); const bt = Math.round(performance.now() - t1), kb = Math.round(JSON.stringify(b).length / 1024);
@@ -1780,44 +1861,44 @@ const ACT = {
   qretry: el => { const q = S.queue[el.dataset.i]; if (q) { q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; } LS.set('queue', S.queue); qrefresh(); flush(); },
   qaccept: el => { const q = S.queue[el.dataset.i]; if (!q) return; q.payload.terima_selisih = true; q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; LS.set('queue', S.queue); qrefresh(); flush(); toast('Dikirim ulang dengan harga server; ditandai untuk ditinjau Owner'); },
   sreview: async el => { const note = await askReason('Tandai sudah ditinjau?', 'Tulis hasil peninjauan (mis. selisih harga dijelaskan, stok sudah di-opname). Angka transaksi tidak diubah.', 'Tandai ditinjau'); if (note === null) return;
-    try { await api('sale.review', {id: el.dataset.id, catatan: note}); S.rhist = null; VC = {}; toast('Ditandai sudah ditinjau'); if (S.tab === 'riwayat') vRiwayat(); else if (S.tab === 'dash') render(); } catch (e) { toast(e.auth ? 'Sesi berakhir, masuk lagi' : e.message); } },
+    try { await api('sale.review', {id: el.dataset.id, catatan: note}); S.rhist = null; VC = {}; toast('Ditandai sudah ditinjau'); if (S.tab === 'riwayat') vRiwayat(); else if (S.tab === 'dash') render(); } catch (e) { fail(e.auth ? 'Sesi berakhir, masuk lagi' : e.message); } },
   qretryall: () => { S.queue.forEach(q => { if (q.status === 'review' && (q.uid === S.data.user.uid || q.by === S.data.user.uid) && !qinfo(q).auth) { q.status = 'pending'; q.state = 'waiting'; q.error = ''; q.alerted = false; } }); LS.set('queue', S.queue); qrefresh(); flush(); },
   more: el => { const k = el.dataset.k; if (!PGN[k]) return; LIM[k] = lim(k) + PGN[k]; // satu halaman lagi
     if (k === 'grid') grid(); else if (k === 'cart') cartLines(); else if (k === 'hist') { if (S.rcur && S.rcur.srv) { if (S.rmore) S.rmore(); } else if (S.rlist && S.rcur) S.rlist(S.rcur); }
     else if (k === 'q') { const sc = document.querySelector('#sheet .sheet'), top = sc ? sc.scrollTop : 0; queueSheet(); const n2 = document.querySelector('#sheet .sheet'); if (n2) n2.scrollTop = top; } }, // sheet digambar ulang: pertahankan posisi gulir
   qdel: async el => {
     const q = S.queue[el.dataset.i]; if (!q) return;
-    if (!navigator.onLine) return toast('Hubungkan internet dulu: penghapusan dicatat ke server agar ada jejaknya');
+    if (!navigator.onLine) return fail('Hubungkan internet dulu: penghapusan dicatat ke server agar ada jejaknya');
     const fromQ = S.qopen, back = () => { if (fromQ) queueSheet(); }, alasan = await askReason('Hapus transaksi ' + rp(q.total) + '?', 'Alasan wajib dan dicatat di server. Tulis juga bila uang pelanggan sudah diterima.' + (can('approve') ? '' : ' Kasir memerlukan persetujuan PIN Owner/Supervisor.'), 'Hapus transaksi'); if (alasan === null) return back();
     let tok = null; if (!can('approve')) { tok = await askOwner('Hapus transaksi ' + rp(q.total) + ' dari antrean: ' + alasan.trim(), 'hapus', q.rid, q.total); if (!tok) return back(); }   // P0 (F-04): kasir tidak boleh membuang penjualan sendirian
     try { await api('sale.reject_log', {override_token: tok, aksi: 'hapus', nomor: q.nomor || '', galat: q.error || '', request_id: q.rid, total: q.total, metode: q.payload.metode_bayar, channel: q.ch, waktu: fmtDT(q.ts), error: q.error || '', alasan: alasan.trim(), items: q.payload.items.map(it => { const v = vById(it.variant_id); return {sku: v ? v.sku : it.variant_id, qty: it.qty}; })}); }
-    catch (e) { back(); return toast(e.auth ? 'Sesi berakhir, masuk lagi' : e.server ? e.message : 'Tidak ada koneksi; coba lagi'); }
+    catch (e) { back(); return fail(e.auth ? 'Sesi berakhir, masuk lagi' : e.server ? e.message : 'Tidak ada koneksi; coba lagi'); }
     const k = S.queue.indexOf(q); if (k < 0) return back(); S.queue.splice(k, 1); q.payload.items.forEach(it => { const v = vById(it.variant_id); if (v) v.stok = r6((Number(v.stok) || 0) + it.qty); }); LS.set('queue', S.queue); LS.set('data', S.data); badge(); if (fromQ) queueSheet(); else qrefresh(); toast('Dihapus dan dicatat di server');
   },
   retur: el => returOpen(el.dataset.id), retur_ok: () => returGo(),
   retur_all: () => { document.querySelectorAll('#sheet [data-rv]').forEach(e => { e.value = e.max; }); },
-  ohsaran: async () => { const el = $('#oh-saran'); try { const r = await api('overhead.saran', {}); if (r.saran_per_unit == null) { if (el) el.textContent = r.pesan || 'Belum bisa dihitung.'; return; } if (el) el.textContent = 'Bulan ' + r.bulan + ': biaya ' + rp(r.biaya) + ' dibagi ' + num(r.unit) + ' unit = ' + rp(r.saran_per_unit) + ' per bungkus. Diisikan ke kolom di atas; tekan Simpan pengaturan.'; const f = document.querySelector('#sf [data-f="overhead_per_unit"]'), m = document.querySelector('#sf [data-f="metode_overhead"]'); if (m && m.value !== 'per_unit') { m.value = 'per_unit'; m.dispatchEvent(new Event('change', {bubbles: true})); } if (f) { f.value = r.saran_per_unit; f.dispatchEvent(new Event('input', {bubbles: true})); } } catch (e) { toast(e.message); } },
+  ohsaran: async () => { const el = $('#oh-saran'); try { const r = await api('overhead.saran', {}); if (r.saran_per_unit == null) { if (el) el.textContent = r.pesan || 'Belum bisa dihitung.'; return; } if (el) el.textContent = 'Bulan ' + r.bulan + ': biaya ' + rp(r.biaya) + ' dibagi ' + num(r.unit) + ' unit = ' + rp(r.saran_per_unit) + ' per bungkus. Diisikan ke kolom di atas; tekan Simpan pengaturan.'; const f = document.querySelector('#sf [data-f="overhead_per_unit"]'), m = document.querySelector('#sf [data-f="metode_overhead"]'); if (m && m.value !== 'per_unit') { m.value = 'per_unit'; m.dispatchEvent(new Event('change', {bubbles: true})); } if (f) { f.value = r.saran_per_unit; f.dispatchEvent(new Event('input', {bubbles: true})); } } catch (e) { fail(e.message); } },
   stab: el => { S.stab = el.dataset.s; S.scat = 'Semua'; S.sq = ''; vStok(); },
   adj: el => adjSheet(el.dataset.t, el.dataset.id), adjsave: el => adjSave(el.dataset.t, el.dataset.id),
   pbopen: pbSheet, pbdel: el => { S.pb.items.splice(el.dataset.i, 1); pbSheet(); }, pbsave: pbSave,
-  pbadd: () => { const q = dnum($('#pb_q').value), h = dnum($('#pb_h').value), id = $('#pb_m').value; if (!id || !(q > 0) || !(h >= 0) || $('#pb_h').value === '') return toast('Isi jumlah dan harga'); S.pb.items.push({id: id, qty: q, harga: h}); pbSheet(); },
+  pbadd: () => { const q = dnum($('#pb_q').value), h = dnum($('#pb_h').value), id = $('#pb_m').value; if (!id || !(q > 0) || !(h >= 0) || $('#pb_h').value === '') return fail('Isi jumlah dan harga', !id ? '#pb_m' : !(q > 0) ? '#pb_q' : '#pb_h'); S.pb.items.push({id: id, qty: q, harga: h}); pbSheet(); },
   go_master: () => { S.tab = 'master'; render(); }, go_riwayat: () => { S.tab = 'riwayat'; render(); }, go_laporan: () => { S.tab = 'laporan'; render(); }, go_shopee: () => { S.tab = 'shopee'; render(); }, go_resep: () => { S.tab = 'resep'; render(); }, go_cek: () => { S.tab = 'cek'; render(); }, go_users: () => { S.tab = 'users'; render(); }, go_settings: () => { S.tab = 'settings'; render(); },
-  expvoid: el => { const why = vOf('xv_r').trim(); if (why.length < 3) return toast('Alasan pembatalan wajib diisi');
-    return busy('Membatalkan…', async () => { try { await api('expense.void', {id: dsOf(el).id, alasan: why}); S.expLoaded = false; closeSheet(); loadExp(); toast('Biaya dibatalkan'); } catch (e) { toast(e.message); } }); },
+  expvoid: el => { const why = vOf('xv_r').trim(); if (why.length < 3) return fail('Alasan pembatalan wajib diisi', '#xv_r');
+    return busy('Membatalkan…', async () => { try { await api('expense.void', {id: dsOf(el).id, alasan: why}); S.expLoaded = false; closeSheet(); loadExp(); toast('Biaya dibatalkan'); } catch (e) { fail(e.message); } }); },
   pbhist: () => pbHist(), pbcancel: el => pbCancel(dsOf(el).id), shapp: el => shiftApprove(dsOf(el).id, dsOf(el).d), shreopen: el => shiftReopen(dsOf(el).id),
-  plock: () => { const d = vOf('pl_d'), r = vOf('pl_r').trim(); if (r.length < 3) return toast('Alasan wajib diisi');
-    if (!confirm(d ? 'Kunci semua periode sampai ' + d + '? Biaya/impor pada tanggal itu dan sebelumnya akan ditolak.' : 'Buka semua kunci periode?')) return;
-    return busy('Menyimpan…', async () => { try { await api('period.lock', {sampai: d, alasan: r}); await loadData(); render(); toast('Kunci periode disimpan'); } catch (e) { toast(e.message); } }); },
+  plock: async () => { const d = vOf('pl_d'), r = vOf('pl_r').trim(); if (r.length < 3) return fail('Alasan wajib diisi (min. 3 huruf)', '#pl_r');
+    if (!await askConfirm(d ? 'Kunci periode sampai ' + d + '?' : 'Buka semua kunci periode?', d ? 'Biaya dan impor pada tanggal itu dan sebelumnya akan ditolak.' : 'Biaya dan impor semua tanggal bisa dicatat lagi.', d ? 'Kunci periode' : 'Buka kunci', {danger: !!d})) return;
+    return busy('Menyimpan…', async () => { try { await api('period.lock', {sampai: d, alasan: r}); await loadData(); render(); toast('Kunci periode disimpan'); } catch (e) { fail(e.message); } }); },
   mt: el => { S.mt = el.dataset.k; vMaster(); }, medit: el => meditSheet(el.dataset.id), msave: el => mSave(el.dataset.id), mdel: el => mDel(el.dataset.id),
-  uunlock: async el => { try { await api('user.unlock', {id: el.dataset.id}); closeSheet(); vUsers(); toast('Kunci akun dibuka'); } catch (e) { toast(e.message); } }, uedit: el => ueditSheet(el.dataset.id), usave: el => uSave(el.dataset.id), ssave: sSave,
+  uunlock: async el => { try { await api('user.unlock', {id: el.dataset.id}); closeSheet(); vUsers(); toast('Kunci akun dibuka'); } catch (e) { fail(e.message); } }, uedit: el => ueditSheet(el.dataset.id), usave: el => uSave(el.dataset.id), ssave: sSave,
   sync: () => busy('Memperbarui data…', async () => { try {
     if (own()) { await api('sistem.refresh', {}); await loadData(); lastChk = Date.now(); render(); await flush(); toast('Data diperbarui'); } // Owner: muat ulang penuh dan bersihkan cache server (setelah mengedit spreadsheet langsung)
     else { const r = await verSync(0); if (r === null) throw new Error('Tidak ada koneksi ke server'); if (r) redrawFor(r); await flush(); toast(r ? 'Data diperbarui' : 'Sudah yang terbaru'); } // Kasir: hanya memuat bila ada data baru
-  } catch (e) { if (e.auth) softLogout(); else toast('Gagal memperbarui: ' + e.message); } })
+  } catch (e) { if (e.auth) softLogout(); else fail('Gagal memperbarui: ' + e.message); } })
 };
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const el = e.target.closest('[data-act]'), a = el && el.dataset.act; if (!el || !ACT[a]) return;
-  if (S.dirty && S.tab === 'settings' && (a === 'tab' || a === 'logout' || a === 'sync' || /^go_/.test(a))) { if (!confirm('Perubahan pengaturan belum disimpan. Keluar tanpa menyimpan?')) return; S.dirty = false; }
+  if (S.dirty && S.tab === 'settings' && (a === 'tab' || a === 'logout' || a === 'sync' || /^go_/.test(a))) { if (!await askConfirm('Keluar tanpa menyimpan?', 'Perubahan pengaturan belum disimpan.', 'Keluar', {danger: true, cancel: 'Tetap di sini'})) return; S.dirty = false; }
   ACT[a](el);
 });
 document.addEventListener('input', e => { if (S.tab === 'settings' && e.target.closest && e.target.closest('#sf')) sDirty(); });
@@ -1838,7 +1919,8 @@ document.addEventListener('input', e => {
   if (k === 'diskon' || k === 'terima') { v = v.replace(/\D/g, ''); S[k] = v; return upd(); }
 });
 document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.chg === 'day') { S.day = e.target.value; vRiwayat(); } });
-document.addEventListener('keydown', e => { const t = /** @type {HTMLElement} */ (e.target); if ((e.key === 'Enter' || e.key === ' ') && t && t.matches && t.matches('[role="button"][data-act]:not(button)')) { e.preventDefault(); t.click(); return; } /* kartu produk berperan tombol: sebelumnya hanya bisa diketuk/diklik, tidak bisa lewat keyboard */ if (e.key === 'Tab') trapTab(e); if (e.key === 'Escape' && $('#sheet') && !$('#sheet').hidden && (!S.opin || S.opin.kind === 'alasan') && !S.busyOn) { closeSheet(); return; } if (e.key === 'Enter' && $('#lp') && document.activeElement === $('#lp')) doLogin(); });
+['input', 'change'].forEach(ev => document.addEventListener(ev, e => { const t = /** @type {HTMLElement|null} */ (e.target); if (t && t.getAttribute && t.getAttribute('aria-invalid') === 'true') failClear(); })); // kolom diperbaiki: pesan di bawahnya hilang
+document.addEventListener('keydown', e => { const t = /** @type {HTMLElement} */ (e.target); if ((e.key === 'Enter' || e.key === ' ') && t && t.matches && t.matches('[role="button"][data-act]:not(button)')) { e.preventDefault(); t.click(); return; } /* kartu produk berperan tombol: sebelumnya hanya bisa diketuk/diklik, tidak bisa lewat keyboard */ if (e.key === 'Tab') trapTab(e); if (e.key === 'Escape' && sheetClosable()) { dismissSheet(); return; } if (e.key === 'Enter' && $('#lp') && document.activeElement === $('#lp')) doLogin(); });
 
 /* ---------- Multi-outlet (v2.1.0): pilih outlet aktif dan administrasi outlet. Aktif hanya pada backend Supabase (S.data.outlets ada). ---------- */
 const multiOutlet = () => !!(S.data && S.data.outlets);
@@ -1854,12 +1936,12 @@ function outletSheet() {
 }
 async function outletPick(id) {
   if (S.data.outlet && id === S.data.outlet.id) return closeSheet();
-  if (S.cart.length && !confirm('Keranjang berisi ' + S.cart.length + ' item dan akan dikosongkan karena pindah outlet. Lanjutkan?')) return;
+  if (S.cart.length && !await askConfirm('Pindah outlet?', 'Keranjang berisi ' + S.cart.length + ' item dan akan dikosongkan.', 'Pindah dan kosongkan', {danger: true, cancel: 'Tetap di sini'})) return;
   await busy('Memuat outlet…', async () => {
     try {
       await api('outlet.use', {id: id}); S.cart = []; LS.set('cart', []); S.rhist = null; VC = {}; S.users = null; S.expLoaded = false;
       await loadData(); closeSheet(); S.tab = homeTab(); render(); toast('Outlet aktif: ' + outletName());
-    } catch (e) { toast(e.message); }
+    } catch (e) { fail(e.message); }
   });
 }
 function vOutlets() {
@@ -1882,7 +1964,7 @@ async function oeditSheet(id) {
 async function oSave(id) {
   return busy('Menyimpan outlet…', async () => {
     const d = readForm(); if (id) d.id = id;
-    try { await api(id ? 'outlet.update' : 'outlet.create', d); await loadData(); closeSheet(); render(); toast(id ? 'Outlet diperbarui' : 'Outlet dibuat'); } catch (e) { toast(e.message); }
+    try { await api(id ? 'outlet.update' : 'outlet.create', d); await loadData(); closeSheet(); render(); toast(id ? 'Outlet diperbarui' : 'Outlet dibuat'); } catch (e) { fail(e.message); }
   });
 }
 MENU_TABS.push('outlets'); APP.views.outlets = vOutlets;
@@ -1907,7 +1989,7 @@ function trDraw() {
 }
 function trNewSheet() {
   const others = pickable().filter(o => o.id !== S.data.outlet.id);
-  if (!others.length) return toast('Belum ada outlet aktif lain sebagai tujuan');
+  if (!others.length) return fail('Belum ada outlet aktif lain sebagai tujuan');
   S.trf = {to: others[0].id, kind: 'variant', item: '', qty: '', items: [], catatan: ''};
   trNewDraw();
 }
@@ -1936,13 +2018,13 @@ function trDetail(id) {
 }
 async function trAct(id, a) {
   const t = (S.trs || []).find(x => x.id === id); if (!t) return; const p = {id: id, action: a};
-  if (a === 'receive') { p.items = t.items.map((it, i) => { const el = document.querySelector('[data-rc="' + i + '"]'); return {item_type: it.tipe, item_id: it.item_id, qty_received: dnum(el ? el.value : it.dikirim)}; }); if (p.items.some(x => isNaN(x.qty_received))) return toast('Jumlah diterima tidak valid'); }
-  if (['reject', 'cancel'].indexOf(a) >= 0 && !confirm(a === 'reject' ? 'Tolak transfer ini?' : 'Batalkan transfer ini?')) return;
-  return busy('Memproses…', async () => { try { await api('transfer.action', p); await loadData(); closeSheet(); vTransfer(); toast('Transfer diperbarui'); } catch (e) { toast(e.message); } });
+  if (a === 'receive') { p.items = t.items.map((it, i) => { const el = document.querySelector('[data-rc="' + i + '"]'); return {item_type: it.tipe, item_id: it.item_id, qty_received: dnum(el ? el.value : it.dikirim)}; }); if (p.items.some(x => isNaN(x.qty_received))) return fail('Jumlah diterima tidak valid'); }
+  if (['reject', 'cancel'].indexOf(a) >= 0 && !await askConfirm(a === 'reject' ? 'Tolak transfer ini?' : 'Batalkan transfer ini?', 'Stok tidak dipindahkan.', a === 'reject' ? 'Tolak' : 'Batalkan transfer', {danger: true, cancel: 'Kembali'})) return;
+  return busy('Memproses…', async () => { try { await api('transfer.action', p); await loadData(); closeSheet(); vTransfer(); toast('Transfer diperbarui'); } catch (e) { fail(e.message); } });
 }
 async function trSave(aj) {
-  const f = S.trf; if (!f.items.length) return toast('Tambahkan minimal satu item');
-  return busy('Menyimpan transfer…', async () => { try { await api('transfer.create', {from_outlet_id: S.data.outlet.id, to_outlet_id: f.to, items: f.items, catatan: f.catatan, ajukan: aj}); closeSheet(); vTransfer(); toast(aj ? 'Transfer diajukan' : 'Draft tersimpan'); } catch (e) { toast(e.message); } });
+  const f = S.trf; if (!f.items.length) return fail('Tambahkan minimal satu item');
+  return busy('Menyimpan transfer…', async () => { try { await api('transfer.create', {from_outlet_id: S.data.outlet.id, to_outlet_id: f.to, items: f.items, catatan: f.catatan, ajukan: aj}); closeSheet(); vTransfer(); toast(aj ? 'Transfer diajukan' : 'Draft tersimpan'); } catch (e) { fail(e.message); } });
 }
 document.addEventListener('input', e => { const k = e.target && e.target.dataset && e.target.dataset.tf; if (k && S.trf) S.trf[k] = e.target.value; });
 document.addEventListener('change', e => { const k = e.target && e.target.dataset && e.target.dataset.tf; if (k && S.trf) { S.trf[k] = e.target.value; } });
@@ -1950,9 +2032,9 @@ APP.views.transfer = vTransfer;
 Object.assign(ACT, {
   go_transfer: () => { S.tab = 'transfer'; render(); }, trnew: trNewSheet, trdetail: el => trDetail(el.dataset.id), tract: el => trAct(el.dataset.id, el.dataset.a),
   trkind: el => { S.trf.kind = el.dataset.k; S.trf.item = ''; trNewDraw(); },
-  tradd: () => { const f = S.trf, q = dnum(f.qty); if (!f.item || !(q > 0)) return toast('Pilih item dan isi jumlah > 0'); const ex = f.items.find(x => x.item_id === f.item && x.item_type === f.kind); if (ex) ex.qty = r6(ex.qty + q); else f.items.push({item_type: f.kind, item_id: f.item, qty: q}); f.qty = ''; trNewDraw(); },
+  tradd: () => { const f = S.trf, q = dnum(f.qty); if (!f.item || !(q > 0)) return fail('Pilih item dan isi jumlah > 0'); const ex = f.items.find(x => x.item_id === f.item && x.item_type === f.kind); if (ex) ex.qty = r6(ex.qty + q); else f.items.push({item_type: f.kind, item_id: f.item, qty: q}); f.qty = ''; trNewDraw(); },
   trdel: el => { S.trf.items.splice(Number(el.dataset.i), 1); trNewDraw(); }, trsave: el => trSave(el.dataset.aj === '1'),
-  kopen: kasOpen, kmove: kasMove,
+  kopen: kasOpen, kbuka: kasOpenSheet, kmove: kasMove,
 });
 /* ---------- Reset data transaksi (v2.5.1): khusus Owner, hanya untuk outlet yang sedang aktif. Aksi sebenarnya dijaga di server (rpc_data_reset). ---------- */
 const RS = {pre: null, err: ''};   // pre = hasil pratinjau dari server; err = alasan pratinjau gagal
@@ -2016,19 +2098,61 @@ function rsDone(r, stok) {
 async function rsGo() {
   const o = S.data.outlet, go = /** @type {HTMLButtonElement|null} */ (document.getElementById('rs_go')); if (!o || !go || go.disabled) return;
   const stokEl = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="rs_stok"]:checked')), stok = stokEl ? stokEl.value : 'nol';
-  if (!navigator.onLine) return toast('Perlu koneksi internet untuk reset data');
+  if (!navigator.onLine) return fail('Perlu koneksi internet untuk reset data');
   return busy('Menghapus data transaksi…', async () => {
     try {
       const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'rst-' + Date.now() + '-' + Math.random().toString(16).slice(2);
       const r = await api('data.reset', {terapkan: true, konfirmasi: vOf('rs_code').trim(), alasan: vOf('rs_why').trim(), stok: stok, request_id: rid});
       S.cart = []; LS.set('cart', []); S.rhist = null; VC = {}; S.expLoaded = false;
       await loadData(); await shiftCheck(); S.tab = 'menu'; render(); rsDone(r, stok);
-    } catch (e) { toast(e.auth ? 'Sesi berakhir, silakan masuk lagi' : e.message); }
+    } catch (e) { fail(e.auth ? 'Sesi berakhir, silakan masuk lagi' : e.message); }
   });
 }
 document.addEventListener('input', e => { const t = /** @type {HTMLElement} */ (e.target); if (S.tab === 'reset' && t && (t.id === 'rs_why' || t.id === 'rs_code')) rsCheck(); });
 MENU_TABS.push('reset'); APP.views.reset = vReset;
 Object.assign(ACT, {go_reset: () => { S.tab = 'reset'; render(); }, rs_go: rsGo, rs_stok: () => { closeSheet(); S.tab = 'stok'; render(); }});
+/* ---------- Navigasi: tombol Kembali (P1, UX-03) ----------
+   Aplikasi satu halaman: sheet dan sub-layar tidak punya entri riwayat, jadi gestur Kembali di Android bisa langsung keluar dari PWA (keranjang tetap tersimpan, tetapi alur terputus).
+   Pola "perangkap": satu entri riwayat cadangan (state {duado: 1}) berada di atas entri dasar ({duado: 0}). Kembali jatuh ke entri dasar, lalu navDecide() memutuskan apa yang terjadi
+   dan perangkap dipasang lagi. Navigasi lewat UI (tombol, chip "← Menu") tidak menyentuh riwayat, jadi tidak ada sinkronisasi dua arah yang bisa melenceng.
+   Keputusan (urut): belum masuk = biarkan; permintaan berjalan = abaikan; sheet terbuka = tutup (bila boleh); sub-layar = kembali ke layar asal atau Menu (pengaturan yang belum disimpan
+   minta Kembali dua kali); layar utama = "tekan sekali lagi untuk keluar", perangkap dicabut sebentar agar Kembali kedua benar-benar keluar.
+   Chrome Android mengabaikan entri riwayat yang dibuat tanpa interaksi pengguna, maka perangkap dipasang pada sentuhan/tombol pertama setelah masuk (navArm), bukan saat memuat. */
+const NAV = {cur: null, prev: null, armedUntil: 0, t: 0};
+const NAV_EXIT_MS = 3000;
+const navIsRoot = tab => ['dash', 'kasir', 'stok', 'produksi', 'menu'].indexOf(tab) >= 0 || (tab === 'riwayat' && !own());
+/** @param {{auth:boolean,busy:boolean,sheet:boolean,closable:boolean,root:boolean,dirty:boolean,armed:boolean}} c */
+function navDecide(c) {
+  if (!c.auth) return 'leave';
+  if (c.busy) return 'stay';
+  if (c.sheet) return c.closable ? 'sheet' : 'stay';
+  if (!c.root) return c.dirty && !c.armed ? 'warn-dirty' : 'screen';
+  return 'warn-exit';
+}
+const sheetClosable = () => { const b = $('#sheet'); return !!b && !b.hidden && (!S.opin || S.opin.kind === 'alasan' || S.opin.kind === 'konfirm') && !S.busyOn; }; // sama dengan syarat tombol Esc
+function navNote() { if (S.tab !== NAV.cur) { NAV.prev = NAV.cur; NAV.cur = S.tab; failClear(); } } // dipanggil render(): ingat layar asal; galat layar lama tidak ikut terbawa
+function navArm() {
+  clearTimeout(NAV.t);
+  if (!(S.token && S.data)) return;
+  const st = history.state; if (st && st.duado === 1) return; // sudah terpasang (mis. setelah muat ulang)
+  try { if (!st || st.duado !== 0) history.replaceState({duado: 0}, ''); history.pushState({duado: 1}, ''); } catch (e) { /* riwayat tak bisa diubah: Kembali berperilaku seperti biasa */ }
+}
+function navBack(/** @type {PopStateEvent} */ e) {
+  if (e.state && e.state.duado === 1) return; // maju ke perangkap (tombol Maju di desktop): tidak ada yang perlu dilakukan
+  const b = $('#sheet'), now = Date.now();
+  const act = navDecide({auth: !!(S.token && S.data), busy: !!S.busyOn, sheet: !!b && !b.hidden, closable: sheetClosable(), root: navIsRoot(S.tab), dirty: !!S.dirty, armed: now < NAV.armedUntil});
+  if (act === 'leave') return;
+  if (act === 'sheet') dismissSheet();
+  else if (act === 'screen') { S.dirty = false; S.tab = NAV.prev && navIsRoot(NAV.prev) && tabAllowed(NAV.prev) ? NAV.prev : tabAllowed('menu') ? 'menu' : homeTab(); render(); }
+  else if (act === 'warn-dirty') { NAV.armedUntil = now + NAV_EXIT_MS; toast('Perubahan belum disimpan. Tekan Kembali sekali lagi untuk membuangnya.'); }
+  else if (act === 'warn-exit') {
+    NAV.armedUntil = now + NAV_EXIT_MS; toast((S.cart && S.cart.length ? 'Keranjang masih terisi dan tersimpan. ' : '') + 'Tekan Kembali sekali lagi untuk keluar.');
+    NAV.t = setTimeout(navArm, NAV_EXIT_MS); return; // tanpa perangkap selama jendela ini: Kembali kedua keluar dari aplikasi
+  }
+  navArm();
+}
+window.addEventListener('popstate', navBack);
+['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => { if (S.token && S.data && Date.now() >= NAV.armedUntil) navArm(); }, {capture: true, passive: true}));
 /* ---------- Mulai ---------- */
 let swReg = null;
 function updBanner() { const b = $('#upd'); b.hidden = false; b.innerHTML = 'Versi baru tersedia <button data-act="reload">Muat ulang</button>'; }
@@ -2050,7 +2174,7 @@ function reloadWhenIdle() {
   const b = $('#upd'); b.hidden = false; b.textContent = 'Versi baru siap. Aplikasi dimuat ulang otomatis setelah layar yang sedang terbuka selesai.';
   rlT = setTimeout(reloadWhenIdle, 1500);
 }
-ACT.reload = () => { if (S.token && S.data && !idleNow()) return toast('Selesaikan dulu layar yang sedang terbuka, lalu tekan Muat ulang lagi'); if (swReg && swReg.waiting) swReg.waiting.postMessage({type: 'SKIP_WAITING'}); else location.reload(); };
+ACT.reload = () => { if (S.token && S.data && !idleNow()) return fail('Selesaikan dulu layar yang sedang terbuka, lalu tekan Muat ulang lagi'); if (swReg && swReg.waiting) swReg.waiting.postMessage({type: 'SKIP_WAITING'}); else location.reload(); };
 window.addEventListener('online', () => { badge(); flush(); checkUpdates(true); rtEnsure(); remoteFlush(); });
 window.addEventListener('offline', badge);
 document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); if (!document.hidden) { checkUpdates(); flush(); btWake(); if (swReg) swReg.update().catch(() => {}); } });
@@ -2064,6 +2188,6 @@ setInterval(pollTick, 15000);   // v2.5.2: polling cadangan; seberapa sering ben
 if (window.MutationObserver) new MutationObserver(ms => { if (ms.every(m => { const t = /** @type {any} */ (m.target); return t.closest && t.closest('#grid,#cl,#cartbar,#tot,#addons'); })) return; /* v1.9.9: tap produk tidak lagi memaksa pengukuran tata letak */ cancelAnimationFrame(S.fr); S.fr = requestAnimationFrame(initFades); }).observe(document.getElementById('app'), {childList: true, subtree: true});
 if (window.matchMedia) { const mq = matchMedia('(min-width: 768px)'); (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => { if (S.token && S.data && $('#sheet').hidden && !S.dirty) render(); }); }
 Object.assign(APP.views, {tutup: vTutup, kasir: vKasir, riwayat: vRiwayat, stok: vStok, menu: vMenu, master: vMaster, users: vUsers, settings: vSettings, diag: vDiag});
-Object.assign(APP, {can: can, own: own, S: S, api: api, $: $, rp: rp, num: num, esc: esc, LS: LS, T: T, sheet: sheet, closeSheet: closeSheet, toast: toast, busy: busy, busyLabel: busyLabel, skel: skel, ACT: ACT,
+Object.assign(APP, {can: can, own: own, S: S, api: api, $: $, rp: rp, num: num, esc: esc, LS: LS, T: T, sheet: sheet, closeSheet: closeSheet, askConfirm: askConfirm, busyPause: busyPause, toast: toast, fail: fail, busy: busy, busyLabel: busyLabel, skel: skel, ACT: ACT,
   render: render, loadData: loadData, patchRecipe: patchRecipe, patchMaster: patchMaster, checkUpdates: checkUpdates, verSync: verSync, dverKey: dverKey, vload: vload, dnum: dnum, qf: qf, r6: r6, flush: flush, Store: Store, isWide: isWide, skuLevel: skuLevel, wrapChips: wrapChips, isAddon: isAddon, emptyState: emptyState, idDate: idDate, idRange: idRange, addDays: addDays, lvText: lvText, vById: vById, pById: pById, vName: vName, vSub: vSub, chName: chName, fmtDT: fmtDT, today: today, start: start});
 })();

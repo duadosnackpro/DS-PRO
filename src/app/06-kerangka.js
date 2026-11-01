@@ -3,10 +3,11 @@ const MENU_TABS = ['menu', 'master', 'users', 'settings', 'resep', 'laporan', 's
 function render() {
   if (!S.token || !S.data) return renderLogin();
   if (!tabAllowed(S.tab)) S.tab = homeTab();
+  navNote();
   const d = S.data; if (!S.ch || !d.channels.some(c => c.id === S.ch)) S.ch = d.channels[0] && d.channels[0].id;
   const o = own(), tabs = [['dash', 'Beranda'], ['kasir', 'Kasir'], ['riwayat', 'Riwayat'], ['stok', 'Stok'], ['produksi', 'Produksi'], ['menu', 'Menu']].filter(t => tabAllowed(t[0]) && !(o && t[0] === 'riwayat')),
     inMenu = MENU_TABS.concat(o ? ['riwayat'] : []).indexOf(S.tab) >= 0;
-  $('#app').innerHTML = '<header class="top"><img class="logo" src="icons/icon-192.png" alt="" width="38" height="38"><div class="brand"><b class="wordmark">' + esc(String(d.settings.nama_usaha || 'Duado Snack').toUpperCase()) + '</b>' + outletLabel() + '</div><button class="badge" id="badge" data-act="queue" aria-label="Status sinkronisasi"></button></header><div class="accent"></div><main id="main"></main><div id="cartbar"></div>' +
+  $('#app').innerHTML = '<header class="top"><img class="logo" src="icons/icon-192.png" alt="" width="38" height="38"><div class="brand"><b class="wordmark">' + esc(String(d.settings.nama_usaha || 'Duado Snack').toUpperCase()) + '</b>' + outletLabel() + '<button class="shs" id="shs" hidden></button></div><button class="badge" id="badge" data-act="queue" aria-label="Status sinkronisasi"></button></header><div class="accent"></div><main id="main"></main><div id="cartbar"></div>' +
     '<nav class="nav" aria-label="Menu utama">' + tabs.map(t => { const on = S.tab === t[0] || (t[0] === 'menu' && inMenu); return '<button data-act="tab" data-t="' + t[0] + '"' + (on ? ' aria-current="page"' : '') + ' class="' + (on ? 'on' : '') + '"><span class="ni">' + svg(t[0], 22) + '</span><span>' + t[1] + '</span></button>'; }).join('') + '</nav>';
   badge();
   (APP.views[S.tab] || vKasir)();
@@ -24,7 +25,15 @@ function badge() {
     else { cls = 'ok'; txt = 'Tersinkron'; }
     b.className = 'badge ' + cls; b.textContent = txt;
   }
-  qstatUpd(); if (S.qopen && !$('#sheet').hidden) queueSheet();
+  shiftUpd(); qstatUpd(); if (S.qopen && !$('#sheet').hidden) queueSheet();
+}
+/* P2 (UX-04): status kasir selalu terlihat di header (hanya untuk peran yang menjual dan bila buka kasir diwajibkan). Ketuk: belum dibuka = buka kasir; sudah buka = ke Tutup kasir. */
+function shiftUpd() {
+  const e = $('#shs'); if (!e) return;
+  const known = !!S.data && can('sell') && S.wajibBuka && typeof S.shiftOpen === 'boolean';
+  e.hidden = !known; if (!known) return;
+  const on = S.shiftOpen; e.className = 'shs ' + (on ? 'ok' : 'warn'); e.textContent = on ? 'Kasir buka' : 'Kasir belum dibuka'; e.setAttribute('data-act', on ? 'go_tutup' : 'kbuka');
+  e.setAttribute('aria-label', on ? 'Kasir buka. Ketuk untuk tutup kasir' : 'Kasir belum dibuka. Ketuk untuk membuka kasir');
 }
 function qstatUpd() {
   const el = $('#qstat'); if (!el) return;
@@ -42,7 +51,7 @@ function qinfo(q) {
   /* F3: total struk yang berbeda dari hitungan server TIDAK punya jalur persetujuan di server. Dulu tombol "Otorisasi Owner" hanya menaruh token di antrean lokal tanpa efek. Kini: perbarui data lalu coba lagi, atau hapus dengan alasan (dicatat di server). */
   if (/^Total struk/.test(e)) return {t: 'Total berbeda dari hitungan server', h: 'Harga atau pengaturan berubah sejak transaksi dibuat. Karena barang dan uang sudah berpindah, pilih "Terima harga server": transaksi dicatat dengan harga server dan ditandai agar Owner meninjaunya. Hapus hanya bila transaksi memang batal (perlu persetujuan Owner).', accept: true};
   if (/^Stok .* tidak cukup/.test(e)) return {t: 'Stok di server kurang', h: 'Stok server lebih kecil dari yang terjual (mis. ada opname/transfer saat offline). Pilih "Terima harga server": penjualan dicatat, stok menjadi minus, dan transaksi ditandai agar Owner meninjau dan melakukan opname.', accept: true};
-  if (/Buka sesi kasir/.test(e)) return {t: 'Kasir belum dibuka', h: 'Buka kasir di Menu, Tutup kasir (isi modal awal), lalu Coba lagi.'};
+  if (/Buka sesi kasir/.test(e)) return {t: 'Kasir belum dibuka', h: 'Ketuk Buka kasir di bagian atas layar dan isi modal awal, lalu Coba lagi.'};
   if (/Harga belum diatur|Channel tidak valid/.test(e)) return {t: 'Harga atau channel berubah di server', h: 'Perbarui data (Menu, Perbarui), lalu Coba lagi. Bila produk memang tidak dijual lagi, Hapus dengan alasan.'};
   if (/Varian (tidak ditemukan|nonaktif)|Jumlah tidak valid/.test(e)) return {t: 'Produk dihapus atau dinonaktifkan', h: 'Produk di transaksi ini sudah tidak aktif. Minta Owner mengaktifkannya lalu Coba lagi, atau Hapus dengan alasan.'};
   if (/Metode bayar/.test(e)) return {t: 'Metode bayar dinonaktifkan', h: 'Minta Owner mengaktifkan metode ini di Pengaturan lalu Coba lagi, atau Hapus dengan alasan.'};

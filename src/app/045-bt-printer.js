@@ -227,12 +227,12 @@ function btPrintQ(rc, o) { // semua cetak (otomatis, tombol, uji) masuk satu ant
   if (key) BT.pend[key] = 1;
   const bytes = escpos(rc), auto = !!(o && o.auto);
   toast(BT.busy ? 'Masuk antrean cetak…' : 'Mencetak ke printer…');
-  return btRun(() => btJob(bytes, {auto: auto})).then(() => { toast('Struk dikirim ke printer'); return true; }, e => { if (!e || e.btcode !== 'cancel') logErr(e, 'btprint'); toast(e && e.btcode === 'cancel' ? 'Pemilihan printer dibatalkan' : 'Gagal mencetak: ' + btWhy(e)); return false; }).then(r => { if (key) delete BT.pend[key]; return r; });
+  return btRun(() => btJob(bytes, {auto: auto})).then(() => { toast('Struk dikirim ke printer'); return true; }, e => { if (!e || e.btcode !== 'cancel') logErr(e, 'btprint'); if (e && e.btcode === 'cancel') toast('Pemilihan printer dibatalkan'); else fail('Gagal mencetak: ' + btWhy(e)); return false; }).then(r => { if (key) delete BT.pend[key]; return r; });
 }
 const btRawbt = rc => { btRelease(); return go('intent:base64,' + b64(escpos(rc)) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;'); };
 function btRelease() { clearTimeout(BT.tm); BT.manual = true; try { if (BT.dev && BT.dev.gatt && BT.dev.gatt.connected) BT.dev.gatt.disconnect(); } catch (e) {} BT.chr = null; if (BT.st !== 'printing') BT.st = 'idle'; } // satu printer BLE hanya melayani satu perangkat: lepaskan agar RawBT bisa menyambung
 async function printBT(rc, o) {
-  if (!rc) return toast('Tidak ada struk untuk dicetak');
+  if (!rc) return fail('Tidak ada struk untuk dicetak');
   const rt = btRoute();
   if (rt === 'rawbt') return btRawbt(rc);
   if (rt === 'ble' && !navigator.bluetooth) {
@@ -265,7 +265,7 @@ async function btConnUser(pick) {
   if (BT.st === 'printing') return toast('Tunggu cetakan selesai dulu');
   if (btRoute() === 'rawbt') return toast('Jalur utama RawBT: pasangkan printer di aplikasi RawBT');
   try { if (pick) await btDisconnect(); await btRun(() => btLink({pick: !!pick})); toast((pick ? 'Printer dipilih: ' : 'Printer tersambung: ') + (btName() || 'tanpa nama')); }
-  catch (e) { btSet(e && e.btcode === 'cancel' ? 'idle' : 'lost', btWhy(e)); if (!e || e.btcode !== 'cancel') logErr(e, 'btconn'); toast(btWhy(e)); }
+  catch (e) { btSet(e && e.btcode === 'cancel' ? 'idle' : 'lost', btWhy(e)); if (!e || e.btcode !== 'cancel') logErr(e, 'btconn'); if (e && e.btcode === 'cancel') toast(btWhy(e)); else fail(btWhy(e)); }
 }
 function btStat() { const s = BT.st; if (s === 'ready') return toast('Printer tersambung: ' + (btName() || 'tanpa nama')); if (s === 'connecting' || s === 'printing' || s === 'retry') return toast('Sedang diproses, mohon tunggu'); return btConnUser(!btSaved()); }
 async function btForget() {
@@ -276,7 +276,7 @@ async function btForget() {
 function btUuidSave() {
   const el = /** @type {HTMLInputElement|null} */ (document.getElementById('btuuid')); if (!el) return;
   const raw = el.value.split(/[,\s]+/).filter(Boolean), ok = raw.map(btUuid);
-  if (ok.some(x => !x)) return toast('UUID tidak valid. Contoh: ff00 atau 0000ff00-0000-1000-8000-00805f9b34fb');
+  if (ok.some(x => !x)) return fail('UUID tidak valid. Contoh: ff00 atau 0000ff00-0000-1000-8000-00805f9b34fb');
   LS.set('btsvc', ok); toast(ok.length ? 'UUID tersimpan. Pilih printer lagi agar dikenali.' : 'UUID khusus dihapus');
 }
 function btOpt(k, on) { LS.set(k, !!on); btTick(); toast(on ? 'Diaktifkan' : 'Dimatikan'); }

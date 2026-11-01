@@ -13,7 +13,7 @@ function vKasir() {
   const d = S.data, wide = isWide(); S.cart = S.cart.filter(l => vById(l.v));
   const withAny = new Set(d.variants.map(v => v.product_id)), withV = new Set(d.variants.filter(v => !isAddon(v)).map(v => v.product_id)), cats = ['Semua'].concat(Array.from(new Set(d.products.filter(p => withV.has(p.id)).map(p => String(p.kategori == null ? '' : p.kategori)).filter(Boolean)))), noV = d.products.filter(p => !withAny.has(p.id)).length;
   if (S.cat !== 'Semua' && cats.indexOf(S.cat) < 0) S.cat = 'Semua';
-  const ctl = (shiftNeeded() ? '<div class="notice"><span>Kasir belum dibuka. Isi modal awal dulu agar penjualan bisa tercatat.</span><button class="chip" data-act="go_tutup">Buka kasir</button></div>' : '') + (own() && noV ? '<div class="notice"><span>' + noV + ' produk belum punya varian, jadi belum tampil di sini.</span><button class="chip" data-act="go_cek">Periksa data</button></div>' : '') + '' + btBox('bar') + '<button id="qstat" data-act="queue"></button>' +
+  const ctl = (shiftNeeded() ? '<div class="notice"><span>Kasir belum dibuka.</span><button class="chip" data-act="kbuka">Buka kasir</button></div>' : '') + (own() && noV ? '<div class="notice"><span>' + noV + ' produk belum punya varian, jadi belum tampil di sini.</span><button class="chip" data-act="go_cek">Periksa data</button></div>' : '') + '' + btBox('bar') + '<button id="qstat" data-act="queue"></button>' +
     '<div class="chips-wrap seg-wrap"><div class="chips seg" role="group" aria-label="Channel penjualan">' + d.channels.map(c => '<button class="' + (c.id === S.ch ? 'on' : '') + '" aria-pressed="' + (c.id === S.ch) + '" data-act="chan" data-c="' + esc(c.id) + '">' + esc(chShort(c.nama)) + '</button>').join('') + '</div></div>',
     flt = '<label class="search">' + svg('search', 18) + '<input id="q" class="inp" data-in="q" placeholder="Cari produk atau SKU" value="' + esc(S.q) + '" aria-label="Cari produk"></label>' +
     wrapChips(cats.map(c => '<button class="chip ' + (c === S.cat ? 'on' : '') + '" aria-pressed="' + (c === S.cat) + '" data-act="cat" data-c="' + esc(c) + '">' + esc(c) + '</button>').join('')) +
@@ -68,18 +68,18 @@ function fotoApply(pid, url) {
 }
 async function fotoLoad(file) {
   const pid = S.fotoFor; if (!file || !pid) return;
-  if (!/^image\//.test(file.type || '')) return toast('Pilih file gambar (JPG, PNG, atau WebP)');
-  if (file.size > 25 * 1024 * 1024) return toast('Foto terlalu besar (maks. 25 MB)');
-  if (navigator.onLine === false) return toast('Tidak ada koneksi. Foto hanya bisa diunggah saat online.');
+  if (!/^image\//.test(file.type || '')) return fail('Pilih file gambar (JPG, PNG, atau WebP)');
+  if (file.size > 25 * 1024 * 1024) return fail('Foto terlalu besar (maks. 25 MB)');
+  if (navigator.onLine === false) return fail('Tidak ada koneksi. Foto hanya bisa diunggah saat online.');
   return busy('Menyiapkan foto…', async () => {
-    let r; try { r = await fotoPrepare(file); } catch (e) { return toast(e.message); }
+    let r; try { r = await fotoPrepare(file); } catch (e) { return fail(e.message); }
     busyLabel('Mengunggah foto (' + Math.max(1, Math.round(r.bytes / 1024)) + ' KB)…');
-    try { const out = await api('produk.foto', {product_id: pid, data: r.b64}); fotoApply(pid, out.foto_url); toast('Foto tersimpan'); } catch (e) { toast(e.message); }
+    try { const out = await api('produk.foto', {product_id: pid, data: r.b64}); fotoApply(pid, out.foto_url); toast('Foto tersimpan'); } catch (e) { fail(e.message); }
   });
 }
 async function fotoDel() {
-  const pid = S.fotoFor; if (!pid || !confirm('Hapus foto produk ini?')) return;
-  return busy('Menghapus foto…', async () => { try { await api('produk.foto', {product_id: pid, data: ''}); fotoApply(pid, ''); toast('Foto dihapus'); } catch (e) { toast(e.message); } });
+  const pid = S.fotoFor; if (!pid || !await askConfirm('Hapus foto produk?', 'Produk kembali memakai kotak inisial.', 'Hapus foto', {danger: true})) return;
+  return busy('Menghapus foto…', async () => { try { await api('produk.foto', {product_id: pid, data: ''}); fotoApply(pid, ''); toast('Foto dihapus'); } catch (e) { fail(e.message); } });
 }
 document.addEventListener('error', ev => { const t = ev.target; if (t && t.tagName === 'IMG' && t.hasAttribute('data-foto')) fotoErr(t); }, true); // error gambar tidak menggelembung: ditangkap di fase capture (CSP v1.9.7 melarang onerror inline; sebelumnya fotoErr juga tidak terjangkau dari atribut)
 let fotoBusy = false;
@@ -201,11 +201,11 @@ async function opinOk() {
 }
 async function pay() {
   if (S.paying || !S.cart.length) return;
-  if (S.cart.some(l => !vById(l.v))) { S.cart = S.cart.filter(l => vById(l.v)); saveCart(); toast('Ada produk yang sudah tidak tersedia; keranjang diperbarui'); if (S.cart.length) { if (!isWide()) cartSheet(); } else closeSheet(); cartbar(); return; }
+  if (S.cart.some(l => !vById(l.v))) { S.cart = S.cart.filter(l => vById(l.v)); saveCart(); fail('Ada produk yang sudah tidak tersedia; keranjang diperbarui'); if (S.cart.length) { if (!isWide()) cartSheet(); } else closeSheet(); cartbar(); return; }
   const c = calc(), tunai = S.metode === 'tunai', terima = tunai ? (S.terima === '' ? c.total : Number(S.terima) || 0) : c.total;
-  if (tunai && terima < c.total) return toast('Uang diterima kurang');
-  { const mn = Number(cfg('bayar_referensi_min')); if (!tunai && mn > 0 && c.total >= mn && !String(S.ref || '').trim()) return toast('Isi nomor referensi ' + S.metode.toUpperCase() + ' (transaksi Rp' + num(mn) + ' ke atas)'); }
-  if (payMethods().indexOf(S.metode) < 0) { S.metode = payMethods()[0] || 'tunai'; LS.set('metode', S.metode); const mc = $('#mchips'); if (mc) mc.innerHTML = methodChips(); cashBox(); upd(); return toast('Metode bayar tidak tersedia, dipilih ' + S.metode.toUpperCase()); }
+  if (tunai && terima < c.total) return fail('Uang diterima kurang', '[data-in="terima"]');
+  { const mn = Number(cfg('bayar_referensi_min')); if (!tunai && mn > 0 && c.total >= mn && !String(S.ref || '').trim()) return fail('Isi nomor referensi ' + S.metode.toUpperCase() + ' (transaksi Rp' + num(mn) + ' ke atas)', '[data-in="ref"]'); }
+  if (payMethods().indexOf(S.metode) < 0) { S.metode = payMethods()[0] || 'tunai'; LS.set('metode', S.metode); const mc = $('#mchips'); if (mc) mc.innerHTML = methodChips(); cashBox(); upd(); return fail('Metode bayar tidak tersedia, dipilih ' + S.metode.toUpperCase()); }
   S.paying = true; let rc;
   const rid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2), ts = Date.now(), override = {};
   if (!own()) { // kontrol kasir: diskon di atas batas butuh PIN Owner (diverifikasi server saat ini juga)
@@ -224,21 +224,24 @@ async function pay() {
       lines: S.cart.map(l => { const v = vById(l.v); return {n: (vName(v) + ' ' + vSub(v)).trim(), q: l.qty, h: priceOf(l.v, S.ch)}; })};
     S.queue.push({rid: rid, payload: payload, status: 'pending', state: 'waiting', ts: Date.now(), uid: S.data.user.uid, total: c.total, ch: rc.ch}); LS.set('queue', S.queue);
     S.cart.forEach(l => { const v = vById(l.v); if (v) v.stok = r6((Number(v.stok) || 0) - l.qty); }); LS.set('data', S.data);
-  } catch (e) { S.paying = false; logErr(e, 'bayar'); return toast('Transaksi gagal disimpan: ' + e.message); }
+  } catch (e) { S.paying = false; logErr(e, 'bayar'); return fail('Transaksi gagal disimpan: ' + e.message); }
   /* transaksi sudah aman di antrean: kosongkan keranjang lebih dulu agar tidak pernah tersisa, apa pun yang terjadi setelah ini */
   S.cart = []; S.diskon = ''; S.terima = ''; S.catatan = ''; S.ref = ''; LS.del('cart'); closeSheet();
   try { render(); } catch (e) { logErr(e, 'render'); }
-  try { showReceipt(rc); } catch (e) { logErr(e, 'struk'); toast('Transaksi tersimpan, tetapi struk gagal ditampilkan.'); }
+  try { showReceipt(rc); } catch (e) { logErr(e, 'struk'); fail('Transaksi tersimpan, tetapi struk gagal ditampilkan.'); }
   if (T(cfg('auto_cetak'))) { try { printBT(rc, {auto: true}).catch(e => logErr(e, 'cetak')); } catch (e) { logErr(e, 'cetak'); } }
   S.paying = false; flush();
 }
+/* P2 (UX-15): struk menampilkan hanya yang bisa dipakai perangkat ini. Utama: WhatsApp + satu tombol cetak (Bluetooth bila perangkat bisa, selain itu cetak lewat browser/AirPrint).
+   Bagikan (hanya bila ada Web Share), Salin, dan cetak browser dilipat ke "Lainnya"; "Transaksi baru" menempel di dasar sheet sehingga selalu terlihat. */
+const btUsable = () => isAndroid() || !!navigator.bluetooth || btHasSerial();
 function showReceipt(rc) {
-  S.rc = rc; const tunai = rc.metode === 'tunai';
+  S.rc = rc; const tunai = rc.metode === 'tunai', bt = btUsable(), canShare = !!navigator.share;
   sheet('<div class="grab"></div><div class="okmark">' + svg('check', 30) + '</div><h2 class="c">Pembayaran berhasil</h2><div class="rc-sum"><div><small>Total</small><b>' + rp(rc.total) + '</b></div><div><small>' + (tunai ? 'Kembalian' : 'Metode') + '</small><b>' + (tunai ? rp(Math.max(rc.kembali, 0)) : esc(rc.metode.toUpperCase())) + '</b></div></div>' +
-    '<label>No. WhatsApp pelanggan (opsional)<input class="inp" id="wa" inputmode="tel" placeholder="08xxxxxxxxxx"></label>' +
-    '<div class="row2"><button class="btn wa" data-act="wa">Kirim WhatsApp</button><button class="btn dark" data-act="rawbt">Cetak Bluetooth</button></div>' + btBox('rc') +
-    '<div class="row3"><button class="btn sec sm" data-act="share">Bagikan…</button><button class="btn sec sm" data-act="copyrc">Salin</button><button class="btn sec sm" data-act="print">Cetak</button></div>' +
-    '<details class="more"><summary>Lihat struk</summary><pre class="rc" id="rtxt"></pre></details><button class="btn pri big" data-act="close">Transaksi baru</button>');
+    '<label>No. WhatsApp (opsional)<input class="inp" id="wa" inputmode="tel" placeholder="08xxxxxxxxxx"></label>' +
+    '<div class="row2"><button class="btn wa" data-act="wa">Kirim WhatsApp</button>' + (bt ? '<button class="btn dark" data-act="rawbt">Cetak Bluetooth</button>' : '<button class="btn dark" data-act="print">Cetak lewat browser</button>') + '</div>' + btBox('rc') +
+    '<details class="more"><summary>Lainnya</summary><div class="row3">' + (canShare ? '<button class="btn sec sm" data-act="share">Bagikan…</button>' : '') + '<button class="btn sec sm" data-act="copyrc">Salin struk</button>' + (bt ? '<button class="btn sec sm" data-act="print">Cetak lewat browser</button>' : '') + '</div><pre class="rc" id="rtxt"></pre></details>' +
+    '<div class="sticky-act"><button class="btn pri big" data-act="close">Transaksi baru</button></div>');
   refreshRc();
 }
 function refreshRc() { // pratinjau + cetak browser: logo (bila aktif) di atas teks struk
