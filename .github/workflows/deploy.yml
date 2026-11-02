@@ -33,9 +33,9 @@ jobs:
           SUPABASE_KEY: ${{ vars.SUPABASE_KEY }}
         run: |
           set -e
-          VER=$(node -p "require('fs').readFileSync('web/js/config.js','utf8').match(/VERSION:\\s*'([^']+)'/)[1]")
-          SUPABASE_URL=${SUPABASE_URL:-$(node -p "(require('fs').readFileSync('web/js/config.js','utf8').match(/SUPABASE_URL:\\s*'([^']*)'/)||[])[1]||'")}
-          echo "$SUPABASE_URL" | grep -Eq '^https://[a-z0-9-]+\\.supabase\\.co$' || { echo "::error::SUPABASE_URL tidak valid (https://<ref>.supabase.co)"; exit 1; }
+          VER=$(node -p "require('fs').readFileSync('web/js/config.js','utf8').match(/VERSION:\s*'([^']+)'/)[1]")
+          SUPABASE_URL=${SUPABASE_URL:-$(node -p "(require('fs').readFileSync('web/js/config.js','utf8').match(/SUPABASE_URL:\s*'([^']*)'/)||[])[1]||''")}
+          echo "$SUPABASE_URL" | grep -Eq '^https://[a-z0-9-]+\.supabase\.co$' || { echo "::error::SUPABASE_URL tidak valid (https://<ref>.supabase.co)"; exit 1; }
           [ -n "$SUPABASE_KEY" ] || { echo "::error::Variabel SUPABASE_KEY (publishable/anon key) belum diisi. JANGAN memakai service_role."; exit 1; }
           case "$SUPABASE_KEY" in *service_role*) echo "::error::Kunci service_role tidak boleh dipakai di klien"; exit 1;; esac
           rm -rf _site && cp -r web _site
