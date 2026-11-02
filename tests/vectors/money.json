@@ -1,0 +1,301 @@
+{
+ "versi": 1,
+ "catatan": "Dibuat oleh generate_money_vectors.py. Jangan diedit tangan.",
+ "purchase_alloc": [
+  {
+   "nama": "dua bahan, ongkir dialokasikan",
+   "ongkir": "10000",
+   "alokasi": true,
+   "items": [
+    {
+     "qty": "3",
+     "harga": "5000"
+    },
+    {
+     "qty": "7",
+     "harga": "3000"
+    }
+   ],
+   "expect": {
+    "eff": [
+     "6388.8889",
+     "3833.3333"
+    ],
+    "subtotal": "36000.00",
+    "total": "46000.00",
+    "jumlah_biaya": "45999.9998"
+   }
+  },
+  {
+   "nama": "satu bahan, tanpa ongkir",
+   "ongkir": "0",
+   "alokasi": true,
+   "items": [
+    {
+     "qty": "2.5",
+     "harga": "5200"
+    }
+   ],
+   "expect": {
+    "eff": [
+     "5200.0000"
+    ],
+    "subtotal": "13000.00",
+    "total": "13000.00",
+    "jumlah_biaya": "13000.00000"
+   }
+  },
+  {
+   "nama": "ongkir tidak dialokasikan",
+   "ongkir": "700",
+   "alokasi": false,
+   "items": [
+    {
+     "qty": "1",
+     "harga": "3100"
+    }
+   ],
+   "expect": {
+    "eff": [
+     "3100.0000"
+    ],
+    "subtotal": "3100.00",
+    "total": "3800.00",
+    "jumlah_biaya": "3100.0000"
+   }
+  },
+  {
+   "nama": "qty dan harga 4 desimal, ongkir tidak habis dibagi",
+   "ongkir": "1234",
+   "alokasi": true,
+   "items": [
+    {
+     "qty": "0.3333",
+     "harga": "7777.7777"
+    },
+    {
+     "qty": "2.1111",
+     "harga": "4444.4444"
+    },
+    {
+     "qty": "5",
+     "harga": "999.9999"
+    }
+   ],
+   "expect": {
+    "eff": [
+     "8343.1844",
+     "4767.5339",
+     "1072.6950"
+    ],
+    "subtotal": "16975.00",
+    "total": "18209.00",
+    "jumlah_biaya": "18208.99917681"
+   }
+  },
+  {
+   "nama": "ongkir kecil untuk qty besar",
+   "ongkir": "1",
+   "alokasi": true,
+   "items": [
+    {
+     "qty": "25",
+     "harga": "12000"
+    },
+    {
+     "qty": "0.5",
+     "harga": "45000"
+    }
+   ],
+   "expect": {
+    "eff": [
+     "12000.0372",
+     "45000.1395"
+    ],
+    "subtotal": "322500.00",
+    "total": "322501.00",
+    "jumlah_biaya": "322500.99975"
+   }
+  },
+  {
+   "nama": "tiga bahan, pecahan umum",
+   "ongkir": "5555",
+   "alokasi": true,
+   "items": [
+    {
+     "qty": "0.3",
+     "harga": "8000"
+    },
+    {
+     "qty": "1.7",
+     "harga": "2500"
+    },
+    {
+     "qty": "12",
+     "harga": "1333.33"
+    }
+   ],
+   "expect": {
+    "eff": [
+     "9962.0344",
+     "3113.1357",
+     "1660.3349"
+    ],
+    "subtotal": "22649.96",
+    "total": "28204.96",
+    "jumlah_biaya": "28204.95981"
+   }
+  }
+ ],
+ "avg_cost": [
+  {
+   "nama": "dua pembelian harga berbeda",
+   "pembelian": [
+    {
+     "qty": "3",
+     "harga": "5000"
+    },
+    {
+     "qty": "2.5",
+     "harga": "5200"
+    }
+   ],
+   "expect": {
+    "qty": "5.5000",
+    "avg": "5090.9091"
+   }
+  },
+  {
+   "nama": "tiga pembelian, hasil bukan bilangan bulat",
+   "pembelian": [
+    {
+     "qty": "10",
+     "harga": "3333.3333"
+    },
+    {
+     "qty": "7",
+     "harga": "4100"
+    },
+    {
+     "qty": "0.3333",
+     "harga": "9999.9999"
+    }
+   ],
+   "expect": {
+    "qty": "17.3333",
+    "avg": "3771.1419"
+   }
+  }
+ ],
+ "production": [
+  {
+   "nama": "dua bahan, hasil aktual berbeda dari standar",
+   "bahan": [
+    {
+     "avg": "5000",
+     "tipe": "bahan",
+     "per_batch": "1"
+    },
+    {
+     "avg": "3000",
+     "tipe": "bahan",
+     "per_batch": "0.5"
+    }
+   ],
+   "batch": "2",
+   "qty_hasil": "19",
+   "tk": "1234.56",
+   "oh": "789.01",
+   "expect": {
+    "bahan": "13000.00",
+    "kemasan": "0.00",
+    "total": "15023.57",
+    "unit": "790.7142"
+   }
+  },
+  {
+   "nama": "bahan dan kemasan, pecahan",
+   "bahan": [
+    {
+     "avg": "4444.4444",
+     "tipe": "bahan",
+     "per_batch": "0.3333"
+    },
+    {
+     "avg": "350.5",
+     "tipe": "kemasan",
+     "per_batch": "12"
+    }
+   ],
+   "batch": "3",
+   "qty_hasil": "33",
+   "tk": "0",
+   "oh": "1000",
+   "expect": {
+    "bahan": "4444.00",
+    "kemasan": "12618.00",
+    "total": "18062.00",
+    "unit": "547.3333"
+   }
+  },
+  {
+   "nama": "hasil aktual 7, total tidak habis dibagi",
+   "bahan": [
+    {
+     "avg": "12345.6789",
+     "tipe": "bahan",
+     "per_batch": "0.7"
+    }
+   ],
+   "batch": "1",
+   "qty_hasil": "7",
+   "tk": "500",
+   "oh": "0",
+   "expect": {
+    "bahan": "8641.98",
+    "kemasan": "0.00",
+    "total": "9141.98",
+    "unit": "1305.9971"
+   }
+  }
+ ],
+ "markup": [
+  {
+   "dasar": "12345",
+   "persen": "15",
+   "expect": "14197"
+  },
+  {
+   "dasar": "10000",
+   "persen": "10",
+   "expect": "11000"
+  },
+  {
+   "dasar": "9999",
+   "persen": "12.5",
+   "expect": "11249"
+  },
+  {
+   "dasar": "15000",
+   "persen": "0",
+   "expect": "15000"
+  },
+  {
+   "dasar": "1",
+   "persen": "33.3333",
+   "expect": "1"
+  },
+  {
+   "dasar": "27500",
+   "persen": "7.5",
+   "expect": "29563"
+  }
+ ],
+ "impl_markup": [
+  "js"
+ ],
+ "toleransi": {
+  "produksi_total": "0.005",
+  "unit_4dp": "0.00005"
+ }
+}

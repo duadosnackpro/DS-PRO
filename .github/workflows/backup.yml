@@ -1,5 +1,7 @@
 # Cadangan logis harian (pg_dump terenkripsi) di luar Supabase. Melengkapi, BUKAN menggantikan, PITR/backup bawaan Supabase (lihat docs/BACKUP-RESTORE.md).
 # Secrets pada environment "production": BACKUP_DATABASE_URL (connection string Postgres, role dengan hak baca penuh), BACKUP_PASSPHRASE (frasa enkripsi; simpan salinannya di pengelola kata sandi, tanpa ini cadangan tak bisa dibuka).
+# Variable SUPABASE_URL: wajib bila ada foto produk (diunduh dari bucket publik product-photos).
+# Hasil per jalan: duado-<waktu>.dump.gpg, .manifest.json.gpg (total kendali, dibutuhkan tools/restore_verify.sh), dan .photos.tar.gpg bila ada foto. Simpan KETIGANYA bersama.
 # Opsional penyimpanan kedua di luar GitHub: Variables BACKUP_S3_BUCKET (+ secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, Variable AWS_REGION).
 # Bila job gagal GitHub mengirim email kegagalan; jangan abaikan, cadangan yang diam-diam gagal sama dengan tidak punya cadangan.
 name: Backup
@@ -7,19 +9,29 @@ on:
   schedule:
     - cron: '0 20 * * *'    # 03:00 WIB
   workflow_dispatch:
+    inputs:
+      lingkungan:
+        description: 'Sumber cadangan = environment GitHub yang menyimpan BACKUP_DATABASE_URL dan BACKUP_PASSPHRASE (jalan terjadwal selalu production)'
+        type: choice
+        options: [production, staging]
+        default: production
+      uji_pemulihan:
+        description: 'Setelah cadangan jadi, langsung uji pulihkan ke Postgres sementara dan verifikasi sampai sen'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   dump:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
+    environment: ${{ inputs.lingkungan || 'production' }}
     steps:
       - name: Periksa konfigurasi
         env:
           URL: ${{ secrets.BACKUP_DATABASE_URL }}
           PASS: ${{ secrets.BACKUP_PASSPHRASE }}
-        run: '[ -n "$URL" ] && [ -n "$PASS" ] || { echo "::error::BACKUP_DATABASE_URL dan BACKUP_PASSPHRASE belum diisi (environment production)"; exit 1; }'
+        run: '[ -n "$URL" ] && [ -n "$PASS" ] || { echo "::error::BACKUP_DATABASE_URL dan BACKUP_PASSPHRASE belum diisi (environment yang dipilih)"; exit 1; }'
       - name: Pasang klien PostgreSQL 17 (versi pg_dump harus >= versi server)
         run: |
           set -e
@@ -28,24 +40,20 @@ jobs:
           sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update && sudo apt-get install -y postgresql-client-17
-      - name: Dump, uji keterbacaan, enkripsi
+      - name: Dump + manifest + foto dari SATU snapshot, enkripsi, uji dekripsi, catat status
+        # Seluruh logika ada di tools/backup.sh (dapat diuji lokal; lihat tests/backup_e2e.sh). Koneksi harus LANGSUNG (port 5432 / session pooler), bukan pooler mode transaksi.
+        # Variable SUPABASE_URL (mis. https://xxxx.supabase.co) wajib bila bucket product-photos berisi foto; bila kosong sementara ada foto, cadangan sengaja GAGAL.
         env:
           BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
-        run: |
-          set -euo pipefail
-          F="duado-$(date -u +%Y%m%dT%H%M%SZ)"
-          # auth ikut: tanpa auth.users, akun PIN hilang saat pemulihan. supabase_migrations ikut: agar riwayat migrasi tetap cocok.
-          /usr/lib/postgresql/17/bin/pg_dump "$BACKUP_DATABASE_URL" --format=custom --no-owner --no-privileges \
-            --schema=public --schema=app --schema=auth --schema=supabase_migrations --file="$F.dump"
-          /usr/lib/postgresql/17/bin/pg_restore --list "$F.dump" > "$F.toc"
-          [ "$(wc -l < "$F.toc")" -gt 50 ] || { echo "::error::Dump mencurigakan kecil"; exit 1; }
-          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --symmetric --cipher-algo AES256 -o "$F.dump.gpg" "$F.dump"
-          rm -f "$F.dump" "$F.toc"; ls -l "$F.dump.gpg"; echo "FILE=$F.dump.gpg" >> "$GITHUB_ENV"
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+          OUT_DIR: backup-out
+        run: bash tools/backup.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: duado-backup
-          path: ${{ env.FILE }}
+          path: backup-out/${{ env.BACKUP_PREFIX }}.*.gpg
           retention-days: 30
           if-no-files-found: error
       - name: Salinan kedua ke S3 (opsional)
@@ -54,4 +62,15 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
-        run: aws s3 cp "$FILE" "s3://${{ vars.BACKUP_S3_BUCKET }}/duado/$FILE" --sse AES256
+        run: for f in backup-out/${BACKUP_PREFIX}.*.gpg; do aws s3 cp "$f" "s3://${{ vars.BACKUP_S3_BUCKET }}/duado/$(basename "$f")" --sse AES256; done
+  uji-pemulihan:
+    if: ${{ inputs.uji_pemulihan }}
+    needs: dump
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/restore-test.yml
+    with:
+      backup_run_id: ${{ github.run_id }}
+      lingkungan: ${{ inputs.lingkungan }}
+    secrets: inherit

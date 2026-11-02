@@ -1,0 +1,111 @@
+# Uji pemulihan cadangan (MANUAL): mengambil cadangan terenkripsi dari jalan Backup, memulihkannya ke Postgres sementara di runner GitHub
+# (bukan ke Supabase mana pun), lalu membandingkannya dengan manifest sampai sen: baris, isi tabel, total kendali uang/stok, hak akses, RLS,
+# struktur (FK, indeks, trigger, kolom, fungsi), dan integrity_check. Itu bukti bahwa cadangan BENAR-BENAR bisa dipulihkan.
+#
+# Cara pakai: (a) Actions > Backup > Run workflow > centang "uji_pemulihan" (bisa dari cabang), atau (b) Actions > "Restore test" > Run workflow (setelah berkas ini ada di main). Kosongkan "backup_run_id" untuk memakai jalan Backup sukses yang terakhir.
+# Secrets yang dipakai: HANYA BACKUP_PASSPHRASE (pada environment yang dipilih). Job ini tidak menyentuh BACKUP_DATABASE_URL, produksi, maupun staging.
+# Data cadangan hanya ada di runner sementara dan dihapus saat job selesai; log hanya memuat hitungan dan selisih, bukan isi data.
+# Tidak mencakup: foto produk (butuh Storage target; lihat docs/BACKUP-RESTORE.md) dan akun login (akun pengganti dibuat tanpa kata sandi).
+name: Restore test
+on:
+  workflow_dispatch:
+    inputs:
+      backup_run_id:
+        description: 'ID jalan workflow Backup (angka di URL). Kosong = yang sukses terakhir'
+        required: false
+        type: string
+      lingkungan:
+        description: 'Environment GitHub yang menyimpan BACKUP_PASSPHRASE untuk cadangan itu'
+        type: choice
+        options: [production, staging]
+        default: production
+  workflow_call:   # dipanggil dari backup.yml (centang "uji_pemulihan"), supaya bisa dijalankan dari cabang sebelum berkas ini ada di main
+    inputs:
+      backup_run_id:
+        required: false
+        type: string
+      lingkungan:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.lingkungan }}
+    services:
+      postgres:
+        image: postgres:17
+        env: {POSTGRES_PASSWORD: restore-test-only}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Pasang klien PostgreSQL 17 (pg_restore harus >= versi pg_dump pembuat cadangan)
+        run: |
+          set -e
+          sudo apt-get install -y curl ca-certificates gnupg lsb-release
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update && sudo apt-get install -y postgresql-client-17
+      - name: Tentukan jalan Backup yang dipulihkan
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.backup_run_id }}
+        run: |
+          set -e
+          [ -n "$RUN_ID" ] || RUN_ID="$(gh run list --workflow backup.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ] || { echo "::error::Tidak ada jalan Backup yang sukses. Jalankan workflow Backup dulu."; exit 1; }
+          echo "Memakai jalan Backup #$RUN_ID"
+          echo "id=$RUN_ID" >> "$GITHUB_OUTPUT"
+      - name: Unduh cadangan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: duado-backup
+          path: restore-in
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+      - name: Periksa berkas cadangan
+        run: |
+          ls -la restore-in
+          ls restore-in/duado-*.dump.gpg >/dev/null 2>&1 || { echo "::error::Artefak tidak berisi duado-*.dump.gpg (kedaluwarsa setelah 30 hari?)"; exit 1; }
+      - name: Siapkan Postgres sementara (peran dan skema auth tiruan seperti harness uji)
+        env:
+          PGPASSWORD: restore-test-only
+        run: |
+          set -e
+          psql -h localhost -U postgres -X -q -v ON_ERROR_STOP=1 -f supabase/tests/harness_plain_pg.sql
+          psql -h localhost -U postgres -X -q -v ON_ERROR_STOP=1 -c "do \$\$ begin if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then create publication supabase_realtime; end if; end \$\$"
+      - name: Pulihkan dan verifikasi sampai sen
+        env:
+          TARGET_DATABASE_URL: postgresql://postgres:restore-test-only@localhost:5432/postgres
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          set -o pipefail
+          [ -n "$BACKUP_PASSPHRASE" ] || { echo "::error::BACKUP_PASSPHRASE kosong pada environment ${{ inputs.lingkungan }}"; exit 1; }
+          DUMP="$(ls restore-in/duado-*.dump.gpg | sort | tail -1)"
+          bash tools/restore.sh --konfirmasi postgres --stub-auth --buat-peran "$DUMP" 2>&1 | tee restore-out.txt
+      - name: Ringkasan
+        if: always()
+        run: |
+          {
+            echo "### Hasil uji pemulihan"
+            echo
+            echo '```'
+            grep -E "^(Tabel dibandingkan|Total kendali|Selisih|integrity_check|PUTUSAN|SELISIH)" restore-out.txt || echo "(tidak ada putusan: lihat log)"
+            echo '```'
+            echo
+            echo "Baris untuk tabel catatan di docs/BACKUP-RESTORE.md:"
+            echo
+            grep -E '^\| [0-9]{4}-' restore-out.txt || true
+          } >> "$GITHUB_STEP_SUMMARY"

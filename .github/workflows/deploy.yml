@@ -59,6 +59,9 @@ jobs:
         if: steps.has.outputs.on == '1'
         run: node tools/verify_schema.js "${{ vars.SUPABASE_URL }}" "${{ vars.SUPABASE_KEY }}"
   migrate:
+    # Penjaga cabang: hanya cabang main yang boleh menyentuh produksi. Menjalankan workflow ini manual dari cabang lain (Run workflow > pilih cabang)
+    # hanya menguji dan memasang ke STAGING; migrasi produksi dan penerbitan situs dilewati.
+    if: github.ref == 'refs/heads/main'
     # Produksi: migrasi harus berhasil dan terverifikasi SEBELUM situs terbit (klien baru menolak berjalan di skema lama).
     needs: [test, migrate-staging]
     runs-on: ubuntu-latest
@@ -97,6 +100,7 @@ jobs:
           SUPABASE_URL=${SUPABASE_URL:-$(node -p "(require('fs').readFileSync('web/js/config.js','utf8').match(/SUPABASE_URL:\s*'([^']*)'/)||[])[1]||''")}
           node tools/verify_schema.js "$SUPABASE_URL" "$SUPABASE_KEY"
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: [test, migrate]
     runs-on: ubuntu-latest
     environment:

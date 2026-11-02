@@ -37,6 +37,10 @@ jobs:
         run: npm run test:p1
       - name: Uji P2 UX (konfirmasi dalam aplikasi, status kasir, Pengaturan, struk)
         run: npm run test:p2
+      - name: Uji vektor uang (kode klien vs nilai harapan independen)
+        run: npm run test:vec
+      - name: Uji pembanding verifikasi pemulihan (desimal exact)
+        run: npm run test:vrf
       - name: Uji logika kewenangan Edge Function
         run: npm run test:edge
   db:
@@ -57,3 +61,7 @@ jobs:
           PLAIN_PG: '1'
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: bash supabase/tests/run.sh
+      - name: Cadangan dan pemulihan ujung-ke-ujung (snapshot, restore, 9 kerusakan harus terdeteksi, foto)
+        env:
+          ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: bash tests/backup_e2e.sh

@@ -337,6 +337,7 @@ async function call(action, p, token, tokCb) {
     case 'user.unlock': return rpc('user_unlock', {user_id: p.id}, token);
     case 'client.log': return rpc('client_error_log', withOutlet({events: p.events}), token);   // v2.5.2: laporan galat/sesi klien (migrasi 0026)
     case 'client.errors': return rpc('client_error_report', {days: p.days || 7}, token);
+    case 'backup.status': return rpc('backup_status', {}, token);   // Fase 2: status cadangan untuk Diagnostik (migrasi 0033; klien tetap jalan bila belum terpasang)
     default: throw fail('Fitur "' + action + '" belum dipindahkan ke backend Supabase (belum tersedia).');
   }
 }

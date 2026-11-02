@@ -19,3 +19,6 @@ psql -f tests/007_receipt_seq_overflow.test.sql
 psql -f tests/008_sync_signal_index.test.sql
 psql -f tests/009_recipe_delete.test.sql
 psql -f tests/010_cash_reopen.test.sql
+psql -f tests/011_integrity_check.test.sql
+psql -f tests/012_money_vectors.test.sql
+psql -f tests/013_backup_manifest_status.test.sql

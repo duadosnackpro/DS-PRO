@@ -92,5 +92,7 @@ function load(cfg, withWS) {
   ok(c && c.body.p.events.length === 1 && c.body.p.outlet_id === 'o1', 'client.log => rpc_client_error_log dengan outlet aktif');
   await t8b.S.call('client.errors', {days: 3}, tok);
   ok(t8b.calls.some(x => /rpc_client_error_report/.test(x.url) && x.body.p.days === 3), 'client.errors => rpc_client_error_report');
+  await t8b.S.call('backup.status', {}, tok);
+  ok(t8b.calls.some(x => /rpc_backup_status/.test(x.url)), 'backup.status => rpc_backup_status (Fase 2, Diagnostik)');
   console.log(fail ? fail + ' GAGAL, ' + pass + ' lulus' : 'Semua lulus (' + pass + ' pemeriksaan)'); process.exit(fail ? 1 : 0);
 })();

@@ -1533,8 +1533,20 @@ function diagHealth() {
       (r.teratas || []).slice(0, 5).map(x => '<div class="muted" style="margin-top:4px">' + esc(String(x.jumlah)) + '× ' + esc(String(x.pesan)) + '</div>').join('');
   }).catch(e => { const el = $('#derr'); if (el) el.textContent = e.server && /belum dipindahkan|Could not find|404/.test(e.message) ? 'Ringkasan belum tersedia (migrasi 0026 belum terpasang).' : 'Ringkasan tidak dapat dimuat: ' + e.message; });
 }
+function diagBackup() { // Fase 2 (B7): status cadangan + peringatan antrean di perangkat. Tidak memblokir apa pun; hanya menampilkan.
+  const el = $('#dbk'); if (!el) return;
+  const q = S.queue.filter(x => x.status === 'pending' || x.status === 'review').length, kv = (a, b) => '<div class="kv"><span>' + a + '</span><span>' + b + '</span></div>';
+  const qHtml = kv('Transaksi antre di perangkat ini', q ? '<b class="err">' + q + '</b>' : '0') + (q ? '<p class="err">' + q + ' transaksi belum terkirim ke server dan TIDAK ada di cadangan mana pun. Jangan hapus data aplikasi, keluar paksa, atau berpindah perangkat sebelum antrean kosong (Menu → Perbarui data).</p>' : '');
+  if (['owner', 'admin', 'auditor'].indexOf(S.data.user.role) < 0) { el.innerHTML = qHtml; return; }
+  api('backup.status', {}, {silent: true}).then(r => { const e2 = $('#dbk'); if (!e2) return; const t = r.terakhir_sah;
+    e2.innerHTML = (r.ada_cadangan ? kv('Cadangan terakhir', (r.peringatan && t.umur_jam > r.ambang_jam ? '<b class="err">' : '<b>') + esc(String(t.umur_jam)) + ' jam lalu</b>') +
+        kv('Isi', esc(String(t.tabel || '-')) + ' tabel, ' + esc(String(t.foto || 0)) + ' foto') + (t.temuan_integritas ? kv('Temuan integritas saat cadangan', '<b class="err">' + esc(String(t.temuan_integritas)) + '</b>') : '') : '<p class="err"><b>Belum ada cadangan tercatat.</b></p>') +
+      (r.percobaan_terakhir_gagal ? '<p class="err">Percobaan cadangan terakhir GAGAL' + (r.catatan_gagal ? ': ' + esc(String(r.catatan_gagal)) : '') + '. Periksa Actions → Backup di GitHub.</p>' : '') +
+      (r.peringatan && !r.percobaan_terakhir_gagal ? '<p class="err">' + (r.ada_cadangan ? 'Cadangan lebih tua dari ' + esc(String(r.ambang_jam)) + ' jam.' : 'Jalankan Actions → Backup dan isi secrets (lihat docs/BACKUP-RESTORE.md).') + '</p>' : '') + qHtml;
+  }).catch(e => { const e2 = $('#dbk'); if (e2) e2.innerHTML = (e.server && /belum dipindahkan|Could not find|404/.test(e.message) ? '<p class="muted">Status cadangan belum tersedia (migrasi 0033 belum terpasang).</p>' : '<p class="muted">Status cadangan tidak dapat dimuat: ' + esc(e.message) + '</p>') + qHtml; });
+}
 function vDiag() {
-  setTimeout(diagHealth, 0);
+  setTimeout(diagHealth, 0); setTimeout(diagBackup, 0);
   setTimeout(() => { // bandingkan versi config.js dengan versi cache sw.js: beda = unggahan web/ tidak lengkap, sehingga banner pembaruan tidak akan muncul
     const el = $('#dver'); if (!el || !window.caches) return;
     caches.keys().then(ks => {
@@ -1548,6 +1560,7 @@ function vDiag() {
     kv('Android (untuk RawBT)', isAndroid() ? 'Ya' : 'Tidak') + kv('Fitur Bagikan', navigator.share ? 'Tersedia' : 'Tidak tersedia') + kv('Antrean transaksi', q.filter(x => x.status === 'pending').length + ' menunggu, ' + q.filter(x => x.status === 'review').length + ' perlu ditinjau') + kv('Lebar struk', rcWidth() + ' karakter') + '</div>' +
     '<div class="card-s"><h3>Uji koneksi dan kecepatan server</h3><button class="btn sec" data-act="dping">Uji koneksi</button><div id="dres" class="muted" style="margin-top:6px"></div></div>' +
     '<div class="card-s"><h3>Sinkronisasi dan kesehatan aplikasi</h3>' + kv('Sinkronisasi', S.rt === 'on' ? 'Realtime tersambung' : S.rt === 'off' ? 'Polling 45 dtk (Realtime nonaktif)' : 'Polling 45 dtk (Realtime: ' + esc(S.rt) + ')') + (['owner', 'admin', 'auditor'].indexOf(S.data.user.role) >= 0 ? '<div id="derr" class="muted">Memuat ringkasan galat…</div>' : '') + '</div>' +
+    '<div class="card-s"><h3>Cadangan data</h3><div id="dbk" class="muted">Memuat status cadangan…</div></div>' +
     btDiagCard() +
     '<div class="card-s"><h3>Uji struk</h3><p class="muted">Memeriksa WhatsApp dan printer tanpa membuat transaksi.</p><div class="row2"><button class="btn wa" data-act="dtwa">Uji WhatsApp</button><button class="btn dark" data-act="dtbt">Uji cetak Bluetooth</button></div><button class="btn sec" data-act="dtshare">Uji Bagikan</button>' +
     '<p class="muted">Jalur RawBT (Android): pasang RawBT dari Play Store, pasangkan printer di dalam RawBT, lalu coba cetak dari RawBT dulu. Jalur BLE langsung: pilih printer BLE sekali di kartu Printer Bluetooth di atas.</p></div>' +
