@@ -1,0 +1,48 @@
+# Pemantau ketersediaan (v2.5.2), gratis. Tiap ~5 menit memeriksa (1) database/API Supabase lewat rpc_schema_version (tanpa login, tanpa data) dan
+# (2) situs GitHub Pages. Ping rutin ini juga mencegah proyek Supabase Free di-pause karena tidak aktif.
+# Gagal 3x berturut-turut dalam satu run => run ditandai merah (GitHub mengirim email ke pemilik repo) + notifikasi Telegram bila secret diisi.
+# Pengaturan: Variables SUPABASE_URL, SUPABASE_KEY (publishable), SITE_URL (mis. https://akun.github.io/repo/); Secrets opsional TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID.
+# Catatan: jadwal GitHub bisa tertunda beberapa menit saat padat, dan dinonaktifkan otomatis bila repo publik tanpa aktivitas 60 hari (aktifkan lagi di tab Actions).
+name: Uptime
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Periksa API dan situs
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ vars.SUPABASE_KEY }}
+          SITE_URL: ${{ vars.SITE_URL }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -u
+          SUPABASE_URL=${SUPABASE_URL:-$(node -p "(require('fs').readFileSync('web/js/config.js','utf8').match(/SUPABASE_URL:\s*'([^']*)'/)||[])[1]||''")}
+          [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ] || { echo "::error::SUPABASE_URL/SUPABASE_KEY belum diisi (Variables)"; exit 2; }
+          probe() { # $1=nama $2.. = argumen curl; sukses bila HTTP 200 dalam 10 dtk
+            local code t; for i in 1 2 3; do
+              out=$(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 10 "${@:2}") || out="000 10"
+              code=${out% *}; t=${out#* }
+              if [ "$code" = "200" ]; then echo "OK   $1 http=$code ${t}s"; awk -v t="$t" 'BEGIN{exit !(t>3)}' && echo "::warning::$1 lambat (${t}s > 3s)"; return 0; fi
+              echo "GAGAL $1 http=$code ${t}s (percobaan $i/3)"; sleep 15
+            done; return 1
+          }
+          FAIL=""
+          probe "Supabase API" -X POST -H "apikey: $SUPABASE_KEY" -H "Content-Type: application/json" -d '{}' "$SUPABASE_URL/rest/v1/rpc/rpc_schema_version" || FAIL="$FAIL API"
+          [ -z "${SITE_URL:-}" ] || probe "Situs" "$SITE_URL" || FAIL="$FAIL Situs"
+          if [ -n "$FAIL" ]; then
+            MSG="Duado POS DOWN:${FAIL} ($(date -u +%H:%M) UTC) ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            if [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ]; then curl -s --max-time 15 "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" -d chat_id="$TG_CHAT" --data-urlencode text="$MSG" >/dev/null || true; fi
+            echo "::error::$MSG"; exit 1
+          fi

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": [
+    "web/js/**/*.js",
+    "types/**/*.d.ts"
+  ]
+}
